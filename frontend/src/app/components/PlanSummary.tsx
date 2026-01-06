@@ -55,12 +55,12 @@ export function PlanSummary() {
           <h1 className="text-3xl mb-2">Engagement Plan Summary</h1>
           <p className="text-gray-600">Formally approved audit plan and scope</p>
         </div>
-        {plan.approvalStatus === 'approved' && (
+        {plan.approvalStatus === 'approved' && plan.approvedAt && (
           <div className="flex items-center gap-2 bg-green-100 text-green-700 px-4 py-2 rounded-lg border border-green-300">
             <CheckCircle2 className="size-5" />
             <div>
               <div className="text-sm font-medium">Approved</div>
-              <div className="text-xs">by {plan.approvedBy} on {formatDate(plan.approvedAt!)}</div>
+              <div className="text-xs">by {plan.approvedBy} on {formatDate(plan.approvedAt)}</div>
             </div>
           </div>
         )}

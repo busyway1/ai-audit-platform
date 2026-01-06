@@ -212,11 +212,20 @@ export type ArtifactType =
   | 'working-paper'
   | 'document';
 
+export type ArtifactData =
+  | { type: 'engagement-plan'; data: EngagementPlanSummary }
+  | { type: 'task-status'; data: Task }
+  | { type: 'issue-details'; data: Issue }
+  | { type: 'financial-statements'; data: FinancialStatementItem[] }
+  | { type: 'dashboard'; data: unknown }
+  | { type: 'working-paper'; data: WorkingPaper }
+  | { type: 'document'; data: Document };
+
 export interface Artifact {
   id: string;
   type: ArtifactType;
   title: string;
-  data: any;  // Type varies by artifact type
+  data: ArtifactData['data'];
   createdAt: Date;
   updatedAt: Date;
   status: 'streaming' | 'complete' | 'error';
