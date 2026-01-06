@@ -55,9 +55,24 @@ export function useStreamingChat() {
       type: 'engagement-plan',
       title: 'Engagement Plan',
       data: {
-        mock: true,
-        userRequest: content,
-        generatedAt: new Date().toISOString(),
+        clientName: 'Mock Client',
+        fiscalYear: '2024',
+        auditPeriod: {
+          start: '2024-01-01',
+          end: '2024-12-31',
+        },
+        materiality: {
+          overall: 1000000,
+          performance: 750000,
+          trivial: 50000,
+        },
+        keyAuditMatters: [],
+        timeline: [],
+        resources: {
+          humanTeam: [],
+          aiAgents: [],
+        },
+        approvalStatus: 'draft',
       },
       createdAt: new Date(),
       updatedAt: new Date(),

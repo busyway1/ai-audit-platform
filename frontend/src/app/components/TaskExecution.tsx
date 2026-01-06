@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Search, ChevronRight, User, Bot, FileText, AlertCircle } from 'lucide-react';
+import { Search, ChevronRight, User, Bot, FileText, AlertCircle, Sparkles } from 'lucide-react';
 import { tasks, agentMessages } from '../data/mockData';
 import type { Task, TaskStatus, AuditPhase } from '../types/audit';
+import { AskAIDrawer } from './workspace/AskAIDrawer';
 
 export function TaskExecution() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(tasks[0]);
@@ -9,6 +10,7 @@ export function TaskExecution() {
   const [filterStatus, setFilterStatus] = useState<TaskStatus | 'all'>('all');
   const [filterPhase, setFilterPhase] = useState<AuditPhase | 'all'>('all');
   const [feedbackInput, setFeedbackInput] = useState('');
+  const [isAskAIOpen, setIsAskAIOpen] = useState(false);
 
   const filteredTasks = tasks.filter(task => {
     const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -310,6 +312,23 @@ export function TaskExecution() {
           </div>
         )}
       </div>
+
+      <button
+        onClick={() => setIsAskAIOpen(true)}
+        className="fixed bottom-6 right-6 bg-blue-600 text-white rounded-full p-4 shadow-lg hover:bg-blue-700 transition-colors z-30"
+        aria-label="Ask AI"
+      >
+        <Sparkles className="size-6" />
+      </button>
+
+      <AskAIDrawer
+        isOpen={isAskAIOpen}
+        onClose={() => setIsAskAIOpen(false)}
+        context={selectedTask ? `Task ${selectedTask.taskNumber}: ${selectedTask.title}` : 'Task Execution & Management'}
+        onOpenInMainChat={() => {
+          window.location.hash = '#/chat';
+        }}
+      />
     </div>
   );
 }

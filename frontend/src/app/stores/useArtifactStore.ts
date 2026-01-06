@@ -56,7 +56,15 @@ export const useArtifactStore = create<ArtifactState>((set) => ({
   updateArtifact: (id, updates) => set((state) => ({
     artifacts: state.artifacts.map((tab) =>
       tab.artifact.id === id
-        ? { ...tab, artifact: { ...tab.artifact, ...updates } }
+        ? {
+            ...tab,
+            artifact: {
+              ...tab.artifact,
+              ...updates,
+              // Ensure data is preserved if not in updates
+              data: updates.data ?? tab.artifact.data
+            } as Artifact
+          }
         : tab
     )
   })),

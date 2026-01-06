@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { FileSpreadsheet, TrendingUp, TrendingDown, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
+import { FileSpreadsheet, TrendingUp, TrendingDown, AlertCircle, CheckCircle2, Clock, Sparkles } from 'lucide-react';
 import { financialStatementItems, tasks } from '../data/mockData';
 import type { FinancialStatementItem, RiskLevel } from '../types/audit';
+import { AskAIDrawer } from './workspace/AskAIDrawer';
 
 export function FinancialStatements() {
   const [selectedAccount, setSelectedAccount] = useState<FinancialStatementItem | null>(null);
+  const [isAskAIOpen, setIsAskAIOpen] = useState(false);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('ko-KR', {
@@ -225,6 +227,23 @@ export function FinancialStatements() {
           )}
         </div>
       </div>
+
+      <button
+        onClick={() => setIsAskAIOpen(true)}
+        className="fixed bottom-6 right-6 bg-blue-600 text-white rounded-full p-4 shadow-lg hover:bg-blue-700 transition-colors z-30"
+        aria-label="Ask AI"
+      >
+        <Sparkles className="size-6" />
+      </button>
+
+      <AskAIDrawer
+        isOpen={isAskAIOpen}
+        onClose={() => setIsAskAIOpen(false)}
+        context={selectedAccount ? `Financial Statement Account: ${selectedAccount.account} (${selectedAccount.category})` : 'Financial Statements - ABC Corporation FY 2025'}
+        onOpenInMainChat={() => {
+          window.location.hash = '#/chat';
+        }}
+      />
     </div>
   );
 }

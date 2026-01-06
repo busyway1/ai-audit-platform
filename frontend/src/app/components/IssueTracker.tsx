@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock, MessageCircle, FileWarning } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, MessageCircle, FileWarning, Sparkles } from 'lucide-react';
 import { issues } from '../data/mockData';
 import type { IssueImpact, IssueStatus } from '../types/audit';
+import { AskAIDrawer } from './workspace/AskAIDrawer';
 
 export function IssueTracker() {
   const [filterImpact, setFilterImpact] = useState<IssueImpact | 'all'>('all');
   const [filterStatus, setFilterStatus] = useState<IssueStatus | 'all'>('all');
   const [selectedIssue, setSelectedIssue] = useState(issues[0]);
+  const [isAskAIOpen, setIsAskAIOpen] = useState(false);
 
   const filteredIssues = issues.filter(issue => {
     const matchesImpact = filterImpact === 'all' || issue.impact === filterImpact;
@@ -348,6 +350,23 @@ export function IssueTracker() {
           )}
         </div>
       </div>
+
+      <button
+        onClick={() => setIsAskAIOpen(true)}
+        className="fixed bottom-6 right-6 bg-blue-600 text-white rounded-full p-4 shadow-lg hover:bg-blue-700 transition-colors z-30"
+        aria-label="Ask AI"
+      >
+        <Sparkles className="size-6" />
+      </button>
+
+      <AskAIDrawer
+        isOpen={isAskAIOpen}
+        onClose={() => setIsAskAIOpen(false)}
+        context={selectedIssue ? `Issue #${selectedIssue.id}: ${selectedIssue.title}` : 'Issue & Deficiency Tracker'}
+        onOpenInMainChat={() => {
+          window.location.hash = '#/chat';
+        }}
+      />
     </div>
   );
 }
