@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { FileText, Upload, Search, Download, Trash2, ExternalLink } from 'lucide-react';
+import { FileText, Upload, Search, Download, Trash2, ExternalLink, Sparkles } from 'lucide-react';
 import { documents } from '../data/mockData';
+import { AskAIDrawer } from './workspace/AskAIDrawer';
 
 export function Documents() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('all');
+  const [isAskAIOpen, setIsAskAIOpen] = useState(false);
 
   const categories = Array.from(new Set(documents.map(doc => doc.category)));
 
@@ -152,6 +154,23 @@ export function Documents() {
           }, 0).toFixed(1)} MB
         </div>
       </div>
+
+      <button
+        onClick={() => setIsAskAIOpen(true)}
+        className="fixed bottom-6 right-6 bg-blue-600 text-white rounded-full p-4 shadow-lg hover:bg-blue-700 transition-colors z-30"
+        aria-label="Ask AI"
+      >
+        <Sparkles className="size-6" />
+      </button>
+
+      <AskAIDrawer
+        isOpen={isAskAIOpen}
+        onClose={() => setIsAskAIOpen(false)}
+        context="Document Management - Audit Working Papers"
+        onOpenInMainChat={() => {
+          window.location.hash = '#/chat';
+        }}
+      />
     </div>
   );
 }

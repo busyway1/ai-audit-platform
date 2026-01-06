@@ -212,24 +212,99 @@ export type ArtifactType =
   | 'working-paper'
   | 'document';
 
-export type ArtifactData =
-  | { type: 'engagement-plan'; data: EngagementPlanSummary }
-  | { type: 'task-status'; data: Task }
-  | { type: 'issue-details'; data: Issue }
-  | { type: 'financial-statements'; data: FinancialStatementItem[] }
-  | { type: 'dashboard'; data: unknown }
-  | { type: 'working-paper'; data: WorkingPaper }
-  | { type: 'document'; data: Document };
-
-export interface Artifact {
-  id: string;
-  type: ArtifactType;
-  title: string;
-  data: ArtifactData['data'];
-  createdAt: Date;
-  updatedAt: Date;
-  status: 'streaming' | 'complete' | 'error';
-}
+export type Artifact =
+  | {
+      id: string;
+      type: 'engagement-plan';
+      title: string;
+      data: EngagementPlanSummary;
+      createdAt: Date;
+      updatedAt: Date;
+      status: 'streaming' | 'complete' | 'error';
+    }
+  | {
+      id: string;
+      type: 'task-status';
+      title: string;
+      data: {
+        task: Task;
+        messages: AgentMessage[];
+      };
+      createdAt: Date;
+      updatedAt: Date;
+      status: 'streaming' | 'complete' | 'error';
+    }
+  | {
+      id: string;
+      type: 'issue-details';
+      title: string;
+      data: Issue;
+      createdAt: Date;
+      updatedAt: Date;
+      status: 'streaming' | 'complete' | 'error';
+    }
+  | {
+      id: string;
+      type: 'financial-statements';
+      title: string;
+      data: {
+        items: FinancialStatementItem[];
+        selectedAccount?: FinancialStatementItem | null;
+        relatedTasks?: any[];
+      };
+      createdAt: Date;
+      updatedAt: Date;
+      status: 'streaming' | 'complete' | 'error';
+    }
+  | {
+      id: string;
+      type: 'dashboard';
+      title: string;
+      data: {
+        agents?: Array<{
+          id: string;
+          name: string;
+          role: 'partner' | 'manager' | 'staff';
+          status: 'working' | 'idle';
+          currentTask?: string;
+        }>;
+        tasks?: Array<{
+          id: string;
+          status: 'completed' | 'in-progress' | 'pending';
+          riskLevel: RiskLevel;
+          phase: string;
+        }>;
+        riskHeatmap?: Array<{
+          category: string;
+          process: string;
+          riskScore: number;
+          riskLevel: RiskLevel;
+          taskCount: number;
+          completedTasks: number;
+        }>;
+      };
+      createdAt: Date;
+      updatedAt: Date;
+      status: 'streaming' | 'complete' | 'error';
+    }
+  | {
+      id: string;
+      type: 'working-paper';
+      title: string;
+      data: WorkingPaper;
+      createdAt: Date;
+      updatedAt: Date;
+      status: 'streaming' | 'complete' | 'error';
+    }
+  | {
+      id: string;
+      type: 'document';
+      title: string;
+      data: Document;
+      createdAt: Date;
+      updatedAt: Date;
+      status: 'streaming' | 'complete' | 'error';
+    };
 
 export interface ArtifactTab {
   id: string;

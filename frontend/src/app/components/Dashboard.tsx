@@ -1,9 +1,12 @@
+import { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Activity, AlertTriangle, CheckCircle2, Clock, Network } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle2, Clock, Network, Sparkles } from 'lucide-react';
 import { agents, tasks, riskHeatmap } from '../data/mockData';
 import type { RiskLevel } from '../types/audit';
+import { AskAIDrawer } from './workspace/AskAIDrawer';
 
 export function Dashboard() {
+  const [isAskAIOpen, setIsAskAIOpen] = useState(false);
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter(t => t.status === 'completed').length;
   const inProgressTasks = tasks.filter(t => t.status === 'in-progress').length;
@@ -196,6 +199,23 @@ export function Dashboard() {
           </BarChart>
         </ResponsiveContainer>
       </div>
+
+      <button
+        onClick={() => setIsAskAIOpen(true)}
+        className="fixed bottom-6 right-6 bg-blue-600 text-white rounded-full p-4 shadow-lg hover:bg-blue-700 transition-colors z-30"
+        aria-label="Ask AI"
+      >
+        <Sparkles className="size-6" />
+      </button>
+
+      <AskAIDrawer
+        isOpen={isAskAIOpen}
+        onClose={() => setIsAskAIOpen(false)}
+        context="Dashboard - ABC Corporation FY 2025 Audit Overview"
+        onOpenInMainChat={() => {
+          window.location.hash = '#/chat';
+        }}
+      />
     </div>
   );
 }

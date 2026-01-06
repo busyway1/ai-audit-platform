@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { FileText, CheckCircle2, AlertCircle, Download, MessageSquare, Eye } from 'lucide-react';
+import { FileText, CheckCircle2, AlertCircle, Download, MessageSquare, Eye, Sparkles } from 'lucide-react';
 import { tasks, workingPapers } from '../data/mockData';
+import { AskAIDrawer } from './workspace/AskAIDrawer';
 
 export function WorkingPaperViewer() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>('T-001');
+  const [isAskAIOpen, setIsAskAIOpen] = useState(false);
 
   const completedTasks = tasks.filter(t => t.status === 'completed' || t.status === 'pending-review');
   const selectedTask = tasks.find(t => t.id === selectedTaskId);
@@ -316,6 +318,23 @@ export function WorkingPaperViewer() {
           )}
         </div>
       </div>
+
+      <button
+        onClick={() => setIsAskAIOpen(true)}
+        className="fixed bottom-6 right-6 bg-blue-600 text-white rounded-full p-4 shadow-lg hover:bg-blue-700 transition-colors z-30"
+        aria-label="Ask AI"
+      >
+        <Sparkles className="size-6" />
+      </button>
+
+      <AskAIDrawer
+        isOpen={isAskAIOpen}
+        onClose={() => setIsAskAIOpen(false)}
+        context={selectedTask ? `Working Paper: ${selectedTask.taskNumber} - ${selectedTask.title}` : 'Working Paper Viewer'}
+        onOpenInMainChat={() => {
+          window.location.hash = '#/chat';
+        }}
+      />
     </div>
   );
 }
