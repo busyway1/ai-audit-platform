@@ -1,11 +1,11 @@
 import { FileSpreadsheet, TrendingUp, TrendingDown, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
-import type { FinancialStatementItem, RiskLevel } from '../../types/audit';
+import type { FinancialStatementItem, RiskLevel, Task } from '../../types/audit';
 
 interface FinancialStatementsArtifactProps {
   data: {
     items: FinancialStatementItem[];
     selectedAccount?: FinancialStatementItem | null;
-    relatedTasks?: any[];
+    relatedTasks?: Task[];
   };
   status: 'streaming' | 'complete' | 'error';
 }

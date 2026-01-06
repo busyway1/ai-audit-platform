@@ -1,8 +1,8 @@
 import { CheckCircle2, AlertTriangle, Calendar, Users, DollarSign, FileCheck, Clock, AlertCircle } from 'lucide-react';
-import type { RiskLevel } from '../../types/audit';
+import type { RiskLevel, EngagementPlanSummary } from '../../types/audit';
 
 interface EngagementPlanArtifactProps {
-  data: any;
+  data: EngagementPlanSummary | null;
   status: 'streaming' | 'complete' | 'error';
 }
 
@@ -158,7 +158,7 @@ export function EngagementPlanArtifact({ data, status }: EngagementPlanArtifactP
                 Key Audit Matters (KAM)
               </h2>
               <div className="space-y-3">
-                {plan.keyAuditMatters.map((kam: any, index: number) => (
+                {plan.keyAuditMatters.map((kam, index) => (
                   <div key={kam.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex items-start gap-3">
@@ -191,7 +191,7 @@ export function EngagementPlanArtifact({ data, status }: EngagementPlanArtifactP
                 Audit Timeline
               </h2>
               <div className="space-y-4">
-                {plan.timeline.map((phase: any, index: number) => (
+                {plan.timeline.map((phase, index) => (
                   <div key={index} className="relative">
                     <div className="flex items-start gap-4">
                       <div className="flex flex-col items-center">
@@ -237,7 +237,7 @@ export function EngagementPlanArtifact({ data, status }: EngagementPlanArtifactP
                 Human Audit Team
               </h2>
               <div className="space-y-3">
-                {plan.resources.humanTeam.map((member: any, index: number) => (
+                {plan.resources.humanTeam.map((member, index) => (
                   <div key={index} className="flex items-start justify-between p-3 bg-gray-50 rounded border border-gray-200">
                     <div className="flex items-start gap-3">
                       <div className="size-10 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm">
@@ -263,7 +263,7 @@ export function EngagementPlanArtifact({ data, status }: EngagementPlanArtifactP
                 AI Agent Allocation
               </h2>
               <div className="space-y-3">
-                {plan.resources.aiAgents.map((agent: any, index: number) => (
+                {plan.resources.aiAgents.map((agent, index) => (
                   <div key={index} className="p-3 bg-purple-50 rounded border border-purple-200">
                     <div className="flex items-center justify-between mb-1">
                       <div className="font-medium text-sm">{agent.name}</div>
