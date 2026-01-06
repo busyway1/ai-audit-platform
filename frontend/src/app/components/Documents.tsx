@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileText, Upload, Search, Filter, Download, Trash2, ExternalLink } from 'lucide-react';
+import { FileText, Upload, Search, Download, Trash2, ExternalLink } from 'lucide-react';
 import { documents } from '../data/mockData';
 
 export function Documents() {
@@ -14,7 +14,7 @@ export function Documents() {
     return matchesSearch && matchesCategory;
   });
 
-  const getFileIcon = (type: string) => {
+  const getFileIcon = () => {
     return <FileText className="size-5 text-blue-600" />;
   };
 
@@ -78,7 +78,7 @@ export function Documents() {
           >
             <div className="flex items-start gap-3 mb-3">
               <div className="p-2 bg-blue-50 rounded-lg">
-                {getFileIcon(doc.type)}
+                {getFileIcon()}
               </div>
               <div className="flex-1 min-w-0">
                 <h3 className="font-medium text-sm mb-1 truncate">{doc.name}</h3>

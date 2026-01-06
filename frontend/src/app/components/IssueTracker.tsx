@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock, MessageCircle, DollarSign, FileWarning } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, MessageCircle, FileWarning } from 'lucide-react';
 import { issues } from '../data/mockData';
 import type { IssueImpact, IssueStatus } from '../types/audit';
 

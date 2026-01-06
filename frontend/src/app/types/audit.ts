@@ -190,3 +190,42 @@ export interface AgentTool {
   lastUsed?: string;
   permissions: string[];
 }
+
+// Chat-First Interface Types
+export type ChatSender = 'user' | 'ai' | 'system';
+
+export interface ChatMessage {
+  id: string;
+  sender: ChatSender;
+  content: string;
+  timestamp: Date;
+  streaming?: boolean;  // True while AI is still generating
+  artifactId?: string;  // Link to artifact if this message created one
+}
+
+export type ArtifactType =
+  | 'engagement-plan'
+  | 'task-status'
+  | 'issue-details'
+  | 'financial-statements'
+  | 'dashboard'
+  | 'working-paper'
+  | 'document';
+
+export interface Artifact {
+  id: string;
+  type: ArtifactType;
+  title: string;
+  data: any;  // Type varies by artifact type
+  createdAt: Date;
+  updatedAt: Date;
+  status: 'streaming' | 'complete' | 'error';
+}
+
+export interface ArtifactTab {
+  id: string;
+  artifact: Artifact;
+  isPinned: boolean;
+}
+
+export type SplitLayout = 'none' | 'horizontal' | 'vertical';

@@ -1,12 +1,10 @@
 import { useState } from 'react';
-import { FileSpreadsheet, TrendingUp, TrendingDown, AlertCircle, CheckCircle2, Clock, DollarSign } from 'lucide-react';
-import { financialStatementItems, tasks, engagementPlanSummary } from '../data/mockData';
+import { FileSpreadsheet, TrendingUp, TrendingDown, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
+import { financialStatementItems, tasks } from '../data/mockData';
 import type { FinancialStatementItem, RiskLevel } from '../types/audit';
 
 export function FinancialStatements() {
   const [selectedAccount, setSelectedAccount] = useState<FinancialStatementItem | null>(null);
-  
-  const performanceMateriality = engagementPlanSummary.materiality.performance;
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('ko-KR', {
