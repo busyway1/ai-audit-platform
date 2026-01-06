@@ -1,13 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, User, Bot } from 'lucide-react';
-import { nanoid } from 'nanoid';
 import { useChatStore } from '../../stores/useChatStore';
-import type { ChatMessage } from '../../types/audit';
+import { useStreamingChat } from '../../hooks/useStreamingChat';
 
 export function ChatInterface() {
-  const { messages, addMessage, updateMessage } = useChatStore();
+  const { messages } = useChatStore();
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { sendMessage } = useStreamingChat();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -19,43 +19,8 @@ export function ChatInterface() {
 
   const handleSendMessage = () => {
     if (!inputValue.trim()) return;
-
-    const userMessage: ChatMessage = {
-      id: nanoid(),
-      sender: 'user',
-      content: inputValue,
-      timestamp: new Date(),
-      streaming: false
-    };
-
-    addMessage(userMessage);
+    sendMessage(inputValue);
     setInputValue('');
-
-    const aiMessageId = nanoid();
-    const streamingMessage: ChatMessage = {
-      id: aiMessageId,
-      sender: 'ai',
-      content: '...',
-      timestamp: new Date(),
-      streaming: true
-    };
-
-    addMessage(streamingMessage);
-
-    setTimeout(() => {
-      const responses = [
-        '네, 잘 확인했습니다. 해당 요청사항을 처리하여 곧 답변드리겠습니다.',
-        '요청하신 정보를 분석 중입니다. 잠시만 기다려주세요.',
-        '검토가 완료되었습니다. 세부 사항은 아티팩트 패널에서 확인하실 수 있습니다.',
-        '감사합니다. 추가로 필요하신 사항이 있으시면 말씀해주세요.'
-      ];
-      const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-
-      updateMessage(aiMessageId, {
-        content: randomResponse,
-        streaming: false
-      });
-    }, 1500);
   };
 
   const formatTimestamp = (timestamp: Date) => {
