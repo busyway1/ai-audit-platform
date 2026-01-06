@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Search, Filter, ChevronRight, User, Bot, FileText, AlertCircle } from 'lucide-react';
+import { Search, ChevronRight, User, Bot, FileText, AlertCircle } from 'lucide-react';
 import { tasks, agentMessages } from '../data/mockData';
-import type { Task, AgentMessage, TaskStatus, AuditPhase } from '../types/audit';
+import type { Task, TaskStatus, AuditPhase } from '../types/audit';
 
 export function TaskExecution() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(tasks[0]);
