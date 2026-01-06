@@ -1,8 +1,0 @@
-{
-  "worktreeName": "artifact-panel-phase2",
-  "branchName": "feature/artifact-panel-phase2",
-  "createdAt": "2026-01-06T16:30:00-08:00",
-  "createdBy": "claude-code",
-  "purpose": "Phase 2: Dynamic Artifact Panel with multi-tab stacking, pin & split view",
-  "baseCommit": "add5bb98c7c4a8eaf006f24b60f9598836021671"
-}
