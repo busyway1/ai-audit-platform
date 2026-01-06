@@ -66,9 +66,8 @@ export function TaskExecution() {
 
   const handleSubmitFeedback = () => {
     if (!feedbackInput.trim() || !selectedTask) return;
-    
+
     // In a real app, this would send to backend
-    console.log('Feedback submitted:', feedbackInput);
     setFeedbackInput('');
     alert('Feedback submitted to agents for re-execution');
   };

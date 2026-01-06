@@ -250,7 +250,7 @@ export type Artifact =
       data: {
         items: FinancialStatementItem[];
         selectedAccount?: FinancialStatementItem | null;
-        relatedTasks?: any[];
+        relatedTasks?: Task[];
       };
       createdAt: Date;
       updatedAt: Date;
