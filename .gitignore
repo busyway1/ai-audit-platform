@@ -65,3 +65,4 @@ backend/test_*.py
 # Development
 worktrees/
 .claude/
+.beads/
