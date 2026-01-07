@@ -25,6 +25,7 @@ Thumbs.db
 # Environment
 .env
 .env.local
+.env.production
 .env.*.local
 
 # Logs
@@ -36,6 +37,25 @@ yarn-error.log*
 # Testing
 coverage/
 .nyc_output/
+frontend/playwright-report/
+frontend/test-results/
+backend/.coverage
+backend/htmlcov/
+backend/.pytest_cache/
+backend/.mypy_cache/
+
+# Temporary files
+*_SUMMARY.*
+*_COMPLETE.*
+*_REPORT.*
+*_DELIVERABLES.*
+FILES_CREATED.txt
+VALIDATION_*.txt
+VERIFICATION_*.md
+TEST_*.md
+backend/*.log
+backend/test_*.py
+.serena/
 
 # Misc
 .cache/

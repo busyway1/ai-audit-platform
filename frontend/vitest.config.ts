@@ -9,6 +9,17 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
     css: true,
+    env: {
+      VITE_API_URL: 'http://localhost:8000',
+      VITE_SUPABASE_URL: 'http://localhost:54321',
+      VITE_SUPABASE_ANON_KEY: 'test-anon-key',
+    },
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/e2e/**',
+      '**/.{idea,git,cache,output,temp}/**'
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
@@ -17,7 +28,9 @@ export default defineConfig({
         'src/test/',
         '**/*.test.{ts,tsx}',
         '**/__tests__/**',
-        '**/dist/**'
+        '**/dist/**',
+        '**/e2e/**',
+        '**/ui/**'
       ],
       thresholds: {
         lines: 80,

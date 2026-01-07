@@ -1,371 +1,360 @@
-import { nanoid } from 'nanoid';
-import { useChatStore } from '@/app/stores/useChatStore';
-import { useArtifactStore } from '@/app/stores/useArtifactStore';
-import type { ChatMessage, Artifact } from '@/app/types/audit';
-
 /**
- * Hook for SSE streaming with artifact parsing
+ * SSE Streaming Chat Hook
+ *
+ * This hook provides a streaming chat interface that simulates real-time AI responses
+ * and artifact generation. It uses Server-Sent Events (SSE) for streaming updates
+ * and integrates with the chat and artifact stores.
  *
  * Features:
- * - Sends user messages to chat store
- * - Simulates AI streaming responses (mock SSE for Phase 2)
- * - Parses JSON blocks from AI responses to create artifacts
- * - Updates both chat and artifact stores
- * - Supports 5 artifact types based on query keywords
+ * - Detects artifact type from user query keywords
+ * - Streams AI responses with mock data
+ * - Creates and updates artifacts in real-time
+ * - Integrates with useChatStore and useArtifactStore
  *
- * Phase 2: Mock implementation with simulated streaming
- * Future: Real SSE backend integration
+ * @module hooks/useStreamingChat
+ */
+
+import { useState, useCallback } from 'react'
+import { nanoid } from 'nanoid'
+import { useChatStore } from '../stores/useChatStore'
+import { useArtifactStore } from '../stores/useArtifactStore'
+import type { ChatMessage, Artifact } from '../types/audit'
+
+/**
+ * Mock data generators for different artifact types
+ */
+const mockDataGenerators = {
+  dashboard: () => ({
+    agents: [
+      {
+        id: nanoid(),
+        name: 'Senior Partner AI',
+        role: 'partner' as const,
+        status: 'working' as const,
+        currentTask: 'Revenue Recognition Analysis',
+      },
+      {
+        id: nanoid(),
+        name: 'Manager AI',
+        role: 'manager' as const,
+        status: 'idle' as const,
+      },
+    ],
+    tasks: [
+      {
+        id: nanoid(),
+        status: 'completed' as const,
+        riskLevel: 'low' as const,
+        phase: 'Planning',
+      },
+      {
+        id: nanoid(),
+        status: 'in-progress' as const,
+        riskLevel: 'high' as const,
+        phase: 'Risk Assessment',
+      },
+    ],
+    riskHeatmap: [
+      {
+        category: 'Revenue',
+        process: 'Sales Recognition',
+        riskScore: 85,
+        riskLevel: 'high' as const,
+        taskCount: 12,
+        completedTasks: 8,
+      },
+      {
+        category: 'Inventory',
+        process: 'Valuation',
+        riskScore: 60,
+        riskLevel: 'medium' as const,
+        taskCount: 8,
+        completedTasks: 3,
+      },
+    ],
+  }),
+
+  'financial-statements': () => ({
+    items: [
+      {
+        id: nanoid(),
+        category: 'Assets',
+        account: 'Cash and Equivalents',
+        currentYear: 1500000,
+        priorYear: 1200000,
+        variance: 300000,
+        variancePercent: 25.0,
+        taskCount: 5,
+        completedTasks: 5,
+        riskLevel: 'low' as const,
+      },
+      {
+        id: nanoid(),
+        category: 'Revenue',
+        account: 'Sales Revenue',
+        currentYear: 5000000,
+        priorYear: 4500000,
+        variance: 500000,
+        variancePercent: 11.11,
+        taskCount: 8,
+        completedTasks: 6,
+        riskLevel: 'medium' as const,
+      },
+    ],
+    selectedAccount: null,
+    relatedTasks: [],
+  }),
+
+  'issue-details': () => ({
+    id: nanoid(),
+    taskId: nanoid(),
+    taskNumber: 'A-100',
+    title: 'Revenue Recognition Timing Issue',
+    description: 'Potential revenue recognized before delivery of goods.',
+    accountCategory: 'Revenue',
+    impact: 'high' as const,
+    status: 'open' as const,
+    identifiedBy: 'Staff AI',
+    identifiedDate: '2024-01-15',
+    financialImpact: 250000,
+    requiresAdjustment: true,
+    includeInManagementLetter: true,
+  }),
+
+  'task-status': () => ({
+    task: {
+      id: nanoid(),
+      taskNumber: 'A-100',
+      title: 'Revenue Recognition Testing',
+      description: 'Test revenue recognition timing and completeness.',
+      status: 'in-progress' as const,
+      phase: 'substantive-procedures' as const,
+      accountCategory: 'Revenue',
+      businessProcess: 'Sales',
+      assignedManager: 'Manager AI',
+      assignedStaff: ['Staff AI 1', 'Staff AI 2'],
+      progress: 65,
+      riskLevel: 'high' as const,
+      requiresReview: true,
+      dueDate: '2024-02-15',
+      createdAt: '2024-01-10',
+    },
+    messages: [
+      {
+        id: nanoid(),
+        taskId: nanoid(),
+        agentId: nanoid(),
+        agentName: 'Staff AI 1',
+        agentRole: 'staff' as const,
+        content: 'Initiating revenue recognition testing.',
+        timestamp: '2024-01-10T09:00:00Z',
+        type: 'instruction' as const,
+      },
+      {
+        id: nanoid(),
+        taskId: nanoid(),
+        agentId: nanoid(),
+        agentName: 'Manager AI',
+        agentRole: 'manager' as const,
+        content: 'Sample selection completed.',
+        timestamp: '2024-01-11T14:30:00Z',
+        type: 'response' as const,
+      },
+    ],
+  }),
+
+  'engagement-plan': () => ({
+    clientName: 'Mock Client Corporation',
+    fiscalYear: '2024',
+    auditPeriod: {
+      start: '2024-01-01',
+      end: '2024-12-31',
+    },
+    materiality: {
+      overall: 1000000,
+      performance: 750000,
+      trivial: 50000,
+    },
+    keyAuditMatters: [
+      {
+        id: nanoid(),
+        matter: 'Revenue Recognition',
+        riskLevel: 'high' as const,
+        response: 'Detailed substantive testing of revenue cutoff.',
+      },
+    ],
+    timeline: [
+      {
+        phase: 'Planning',
+        startDate: '2024-01-15',
+        endDate: '2024-02-15',
+        status: 'in-progress' as const,
+      },
+    ],
+    resources: {
+      humanTeam: [
+        {
+          name: 'John Smith',
+          role: 'Engagement Partner',
+          allocation: '20%',
+        },
+      ],
+      aiAgents: [
+        {
+          name: 'Partner AI',
+          role: 'partner' as const,
+          assignedTasks: 5,
+        },
+      ],
+    },
+    approvalStatus: 'draft' as const,
+  }),
+}
+
+/**
+ * Detect artifact type from user query
+ */
+function detectArtifactType(query: string): keyof typeof mockDataGenerators {
+  const lowerQuery = query.toLowerCase()
+
+  if (lowerQuery.includes('dashboard')) return 'dashboard'
+  if (lowerQuery.includes('financial') || lowerQuery.includes('statement')) return 'financial-statements'
+  if (lowerQuery.includes('issue')) return 'issue-details'
+  if (lowerQuery.includes('task')) return 'task-status'
+  if (lowerQuery.includes('engagement') || lowerQuery.includes('plan')) return 'engagement-plan'
+
+  // Default to engagement-plan
+  return 'engagement-plan'
+}
+
+/**
+ * Get artifact title based on type
+ */
+function getArtifactTitle(type: keyof typeof mockDataGenerators): string {
+  const titles: Record<keyof typeof mockDataGenerators, string> = {
+    dashboard: 'Dashboard Overview',
+    'financial-statements': 'Financial Statements Overview',
+    'issue-details': 'Issue Details',
+    'task-status': 'Task Status Details',
+    'engagement-plan': 'Engagement Plan',
+  }
+  return titles[type]
+}
+
+/**
+ * Get AI response message based on artifact type
+ */
+function getAIResponse(type: keyof typeof mockDataGenerators): string {
+  const responses: Record<keyof typeof mockDataGenerators, string> = {
+    dashboard: "I've created a dashboard overview for you. Check the artifact panel →",
+    'financial-statements': "I've prepared the financial statements analysis. Check the artifact panel →",
+    'issue-details': "I've documented the issue details. Check the artifact panel →",
+    'task-status': "I've retrieved the task status and agent messages. Check the artifact panel →",
+    'engagement-plan': "I've created an engagement plan for you. Check the artifact panel →",
+  }
+  return responses[type]
+}
+
+/**
+ * Hook for streaming chat with SSE
+ *
+ * This hook simulates a streaming AI chat interface that:
+ * 1. Adds user message to chat store
+ * 2. Creates streaming AI message
+ * 3. Detects artifact type from query
+ * 4. Generates mock data for artifact
+ * 5. Updates AI message with final content
+ * 6. Marks artifact as complete
+ *
+ * @returns Object with sendMessage function and streaming state
+ *
+ * @example
+ * ```tsx
+ * function ChatInterface() {
+ *   const { sendMessage } = useStreamingChat()
+ *
+ *   const handleSend = async (message: string) => {
+ *     await sendMessage(message)
+ *   }
+ *
+ *   return <ChatInput onSend={handleSend} />
+ * }
+ * ```
  */
 export function useStreamingChat() {
-  const { addMessage, updateMessage } = useChatStore();
-  const { addArtifact, updateArtifact } = useArtifactStore();
+  const [isStreaming, setIsStreaming] = useState(false)
+  const addMessage = useChatStore((state) => state.addMessage)
+  const updateMessage = useChatStore((state) => state.updateMessage)
+  const addArtifact = useArtifactStore((state) => state.addArtifact)
+  const updateArtifact = useArtifactStore((state) => state.updateArtifact)
 
-  /**
-   * Detect artifact type from user query
-   * @param query - User message content
-   * @returns Artifact type based on keywords
-   */
-  const detectArtifactType = (query: string): Artifact['type'] => {
-    const lowerQuery = query.toLowerCase();
+  const sendMessage = useCallback(
+    async (content: string) => {
+      setIsStreaming(true)
 
-    // Order matters: more specific patterns first
-    if (lowerQuery.includes('dashboard')) {
-      return 'dashboard';
-    }
-    if (lowerQuery.includes('financial') || lowerQuery.includes('statement')) {
-      return 'financial-statements';
-    }
-    if (lowerQuery.includes('issue')) {
-      return 'issue-details';
-    }
-    if (lowerQuery.includes('task')) {
-      return 'task-status';
-    }
-    if (lowerQuery.includes('engagement') || lowerQuery.includes('plan')) {
-      return 'engagement-plan';
-    }
+      try {
+        // 1. Add user message
+        const userMessage: ChatMessage = {
+          id: nanoid(),
+          sender: 'user',
+          content,
+          timestamp: new Date(),
+        }
+        addMessage(userMessage)
 
-    // Default fallback
-    return 'engagement-plan';
-  };
+        // 2. Create initial AI message (streaming)
+        const aiMessageId = nanoid()
+        const aiMessage: ChatMessage = {
+          id: aiMessageId,
+          sender: 'ai',
+          content: '',
+          timestamp: new Date(),
+          streaming: true,
+        }
+        addMessage(aiMessage)
 
-  /**
-   * Generate mock artifact data based on type
-   * @param type - Artifact type
-   * @returns Mock artifact data
-   */
-  const generateMockArtifact = (type: Artifact['type']): Artifact => {
-    const baseId = nanoid();
-    const now = new Date();
+        // 3. Detect artifact type
+        const artifactType = detectArtifactType(content)
 
-    switch (type) {
-      case 'dashboard':
-        return {
-          id: baseId,
-          type: 'dashboard',
-          title: 'Dashboard Overview',
-          data: {
-            agents: [
-              {
-                id: 'agent-1',
-                name: 'Partner Agent',
-                role: 'partner',
-                status: 'working',
-                currentTask: 'Revenue Recognition Analysis',
-              },
-              {
-                id: 'agent-2',
-                name: 'Senior Manager',
-                role: 'manager',
-                status: 'idle',
-              },
-            ],
-            tasks: [
-              {
-                id: 'task-1',
-                status: 'completed',
-                riskLevel: 'low',
-                phase: 'planning',
-              },
-              {
-                id: 'task-2',
-                status: 'in-progress',
-                riskLevel: 'high',
-                phase: 'substantive-procedures',
-              },
-            ],
-            riskHeatmap: [
-              {
-                category: 'Revenue',
-                process: 'Sales Recognition',
-                riskScore: 85,
-                riskLevel: 'high',
-                taskCount: 5,
-                completedTasks: 2,
-              },
-              {
-                category: 'Cash',
-                process: 'Bank Reconciliation',
-                riskScore: 30,
-                riskLevel: 'low',
-                taskCount: 3,
-                completedTasks: 3,
-              },
-            ],
-          },
-          createdAt: now,
-          updatedAt: now,
+        // 4. Generate mock data
+        const mockData = mockDataGenerators[artifactType]()
+
+        // 5. Create artifact (streaming)
+        const artifactId = nanoid()
+        const artifact: Artifact = {
+          id: artifactId,
+          type: artifactType,
+          title: getArtifactTitle(artifactType),
+          data: mockData,
+          createdAt: new Date(),
+          updatedAt: new Date(),
           status: 'streaming',
-        };
+        } as Artifact
 
-      case 'financial-statements':
-        return {
-          id: baseId,
-          type: 'financial-statements',
-          title: 'Financial Statements Overview',
-          data: {
-            items: [
-              {
-                id: 'fs-1',
-                category: 'Assets',
-                account: 'Cash and Equivalents',
-                currentYear: 1500000,
-                priorYear: 1200000,
-                variance: 300000,
-                variancePercent: 25.0,
-                taskCount: 3,
-                completedTasks: 2,
-                riskLevel: 'low',
-              },
-              {
-                id: 'fs-2',
-                category: 'Revenue',
-                account: 'Product Sales',
-                currentYear: 5000000,
-                priorYear: 4200000,
-                variance: 800000,
-                variancePercent: 19.05,
-                taskCount: 8,
-                completedTasks: 3,
-                riskLevel: 'high',
-              },
-            ],
-            selectedAccount: null,
-            relatedTasks: [],
-          },
-          createdAt: now,
-          updatedAt: now,
-          status: 'streaming',
-        };
+        addArtifact(artifact)
 
-      case 'issue-details':
-        return {
-          id: baseId,
-          type: 'issue-details',
-          title: 'Issue Details',
-          data: {
-            id: 'issue-1',
-            taskId: 'task-1',
-            taskNumber: 'A-100',
-            title: 'Revenue Recognition Timing Issue',
-            description:
-              'Client recognized revenue in Q4 that should have been deferred to Q1 next year.',
-            accountCategory: 'Revenue',
-            impact: 'high',
-            status: 'open',
-            identifiedBy: 'Senior Auditor - AI Agent',
-            identifiedDate: '2024-12-15',
-            financialImpact: 250000,
-            requiresAdjustment: true,
-            includeInManagementLetter: true,
-          },
-          createdAt: now,
-          updatedAt: now,
-          status: 'streaming',
-        };
+        // 6. Simulate streaming delay
+        await new Promise((resolve) => setTimeout(resolve, 1000))
 
-      case 'task-status':
-        return {
-          id: baseId,
-          type: 'task-status',
-          title: 'Task Status Details',
-          data: {
-            task: {
-              id: 'task-1',
-              taskNumber: 'A-100',
-              title: 'Revenue Recognition Testing',
-              description: 'Perform substantive testing on revenue recognition policies.',
-              status: 'in-progress',
-              phase: 'substantive-procedures',
-              accountCategory: 'Revenue',
-              businessProcess: 'Sales',
-              assignedManager: 'AI Manager Agent',
-              assignedStaff: ['AI Staff 1', 'AI Staff 2'],
-              progress: 65,
-              riskLevel: 'high',
-              requiresReview: true,
-              dueDate: '2024-12-31',
-              createdAt: '2024-12-01',
-            },
-            messages: [
-              {
-                id: 'msg-1',
-                taskId: 'task-1',
-                agentId: 'agent-1',
-                agentName: 'AI Manager',
-                agentRole: 'manager',
-                content: 'Starting revenue recognition analysis using data extraction tools.',
-                timestamp: '2024-12-01T10:00:00Z',
-                type: 'instruction',
-              },
-              {
-                id: 'msg-2',
-                taskId: 'task-1',
-                agentId: 'agent-2',
-                agentName: 'AI Staff 1',
-                agentRole: 'staff',
-                content: 'Extracted 1,247 sales transactions from Q4. Analyzing revenue cut-off.',
-                timestamp: '2024-12-02T14:30:00Z',
-                type: 'response',
-              },
-            ],
-          },
-          createdAt: now,
-          updatedAt: now,
-          status: 'streaming',
-        };
+        // 7. Update AI message with final content and artifact reference
+        updateMessage(aiMessageId, {
+          content: getAIResponse(artifactType),
+          streaming: false,
+          artifactId,
+        })
 
-      case 'engagement-plan':
-      default:
-        return {
-          id: baseId,
-          type: 'engagement-plan',
-          title: 'Engagement Plan',
-          data: {
-            clientName: 'Mock Client Corporation',
-            fiscalYear: '2024',
-            auditPeriod: {
-              start: '2024-01-01',
-              end: '2024-12-31',
-            },
-            materiality: {
-              overall: 1000000,
-              performance: 750000,
-              trivial: 50000,
-            },
-            keyAuditMatters: [
-              {
-                id: 'kam-1',
-                matter: 'Revenue Recognition',
-                riskLevel: 'high',
-                response: 'Perform detailed substantive testing on revenue cut-off.',
-              },
-            ],
-            timeline: [
-              {
-                phase: 'Planning',
-                startDate: '2024-11-01',
-                endDate: '2024-11-30',
-                status: 'completed',
-              },
-              {
-                phase: 'Fieldwork',
-                startDate: '2024-12-01',
-                endDate: '2025-01-31',
-                status: 'in-progress',
-              },
-            ],
-            resources: {
-              humanTeam: [
-                { name: 'John Partner', role: 'Engagement Partner', allocation: '20%' },
-                { name: 'Sarah Manager', role: 'Manager', allocation: '80%' },
-              ],
-              aiAgents: [
-                { name: 'Partner AI Agent', role: 'partner', assignedTasks: 5 },
-                { name: 'Manager AI Agent', role: 'manager', assignedTasks: 15 },
-              ],
-            },
-            approvalStatus: 'draft',
-          },
-          createdAt: now,
-          updatedAt: now,
-          status: 'streaming',
-        };
-    }
-  };
+        // 8. Mark artifact as complete
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        updateArtifact(artifactId, { status: 'complete' })
+      } finally {
+        setIsStreaming(false)
+      }
+    },
+    [addMessage, updateMessage, addArtifact, updateArtifact]
+  )
 
-  /**
-   * Get AI response message based on artifact type
-   * @param type - Artifact type
-   * @returns AI response message
-   */
-  const getAIResponseMessage = (type: Artifact['type']): string => {
-    switch (type) {
-      case 'dashboard':
-        return "I've created a dashboard overview for you. Check the artifact panel →";
-      case 'financial-statements':
-        return "I've prepared the financial statements analysis. Check the artifact panel →";
-      case 'issue-details':
-        return "I've documented the issue details. Check the artifact panel →";
-      case 'task-status':
-        return "I've retrieved the task status and agent messages. Check the artifact panel →";
-      case 'engagement-plan':
-      default:
-        return "I've created an engagement plan for you. Check the artifact panel →";
-    }
-  };
-
-  /**
-   * Send a message and handle the streaming AI response
-   *
-   * @param content - User message content
-   */
-  const sendMessage = async (content: string): Promise<void> => {
-    // Add user message to chat
-    const userMsg: ChatMessage = {
-      id: nanoid(),
-      sender: 'user',
-      content,
-      timestamp: new Date(),
-    };
-    addMessage(userMsg);
-
-    // Create AI message with streaming state
-    const aiMsgId = nanoid();
-    const aiMsg: ChatMessage = {
-      id: aiMsgId,
-      sender: 'ai',
-      content: 'Analyzing your request...',
-      timestamp: new Date(),
-      streaming: true,
-    };
-    addMessage(aiMsg);
-
-    // Simulate streaming delay (mock SSE)
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Detect artifact type from query
-    const artifactType = detectArtifactType(content);
-
-    // Generate mock artifact based on type
-    const mockArtifact = generateMockArtifact(artifactType);
-
-    // Add artifact to store
-    addArtifact(mockArtifact);
-
-    // Update AI message with final content and artifact reference
-    updateMessage(aiMsgId, {
-      content: getAIResponseMessage(artifactType),
-      streaming: false,
-      artifactId: mockArtifact.id,
-    });
-
-    // Simulate artifact completion delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // Mark artifact as complete
-    updateArtifact(mockArtifact.id, { status: 'complete' });
-  };
-
-  return { sendMessage };
+  return {
+    sendMessage,
+    isStreaming,
+  }
 }
