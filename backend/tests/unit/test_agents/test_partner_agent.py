@@ -34,9 +34,14 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Dict, Any
 
-from src.agents.partner_agent import PartnerAgent
+from src.agents.partner_agent import (
+    PartnerAgent,
+    ResearchSource,
+    DeepResearchResult
+)
 from src.graph.state import AuditState
 from langchain_core.messages import AIMessage, HumanMessage
+import httpx
 
 
 # ============================================================================
@@ -1269,6 +1274,724 @@ class TestBuildClientContext:
 
         # Should include recent messages (8, 9)
         assert "Message 8" in context or "Response 9" in context
+
+
+# ============================================================================
+# DEEP RESEARCH TESTS (BE-10.1)
+# ============================================================================
+
+class TestDeepResearch:
+    """Test suite for deep_research() method with RAG + Web integration."""
+
+    @pytest.mark.asyncio
+    async def test_deep_research_returns_result_structure(
+        self,
+        mock_audit_state: AuditState
+    ):
+        """
+        Test deep_research returns proper DeepResearchResult structure.
+
+        Verifies:
+        - Returns DeepResearchResult dataclass
+        - Contains topic, rag_results, web_results
+        - Contains synthesis and key_findings
+        - Contains sources_consulted count and confidence_score
+        - Contains metadata with client info
+
+        Expected behavior:
+        - Should return complete DeepResearchResult
+        - All fields should be properly typed
+        """
+        with patch('src.agents.partner_agent.ChatOpenAI') as mock_llm_class:
+            # Setup mock LLM for synthesis
+            mock_response = MagicMock()
+            mock_response.content = json.dumps({
+                "synthesis": "Comprehensive research synthesis",
+                "key_findings": ["Finding 1", "Finding 2"],
+                "regulatory_requirements": ["K-IFRS 1115"],
+                "audit_risks": ["Revenue timing risk"],
+                "recommendations": ["Test cutoff procedures"],
+                "confidence_score": 0.85
+            })
+
+            mock_llm = AsyncMock()
+            mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+            mock_llm_class.return_value = mock_llm
+
+            agent = PartnerAgent()
+
+            # Mock MCP servers being unavailable (will use fallback)
+            with patch('httpx.AsyncClient') as mock_client:
+                mock_client.return_value.__aenter__ = AsyncMock(
+                    return_value=MagicMock()
+                )
+                mock_client.return_value.__aexit__ = AsyncMock()
+                mock_client.return_value.__aenter__.return_value.post = AsyncMock(
+                    side_effect=httpx.ConnectError("Connection refused")
+                )
+
+                result = await agent.deep_research(
+                    topic="revenue recognition timing",
+                    state=mock_audit_state
+                )
+
+            # Verify result structure
+            assert isinstance(result, DeepResearchResult)
+            assert result.topic == "revenue recognition timing"
+            assert isinstance(result.rag_results, list)
+            assert isinstance(result.web_results, list)
+            assert isinstance(result.synthesis, str)
+            assert isinstance(result.key_findings, list)
+            assert isinstance(result.sources_consulted, int)
+            assert isinstance(result.confidence_score, float)
+            assert isinstance(result.metadata, dict)
+
+    @pytest.mark.asyncio
+    async def test_deep_research_empty_topic_raises_error(
+        self,
+        mock_audit_state: AuditState
+    ):
+        """
+        Test deep_research raises ValueError for empty topic.
+
+        Verifies:
+        - Empty string topic raises ValueError
+        - Whitespace-only topic raises ValueError
+        - None topic raises error
+
+        Expected behavior:
+        - Should raise ValueError with clear message
+        """
+        with patch('src.agents.partner_agent.ChatOpenAI') as mock_llm_class:
+            agent = PartnerAgent()
+
+            # Test empty string
+            with pytest.raises(ValueError) as exc_info:
+                await agent.deep_research(topic="", state=mock_audit_state)
+            assert "empty" in str(exc_info.value).lower()
+
+            # Test whitespace only
+            with pytest.raises(ValueError) as exc_info:
+                await agent.deep_research(topic="   ", state=mock_audit_state)
+            assert "empty" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_deep_research_uses_fallback_on_mcp_error(
+        self,
+        mock_audit_state: AuditState
+    ):
+        """
+        Test deep_research uses fallback results when MCP servers fail.
+
+        Verifies:
+        - Connection errors trigger fallback
+        - Fallback RAG results include K-GAAS standards
+        - Fallback web results include KICPA guidelines
+        - Research continues despite server failures
+
+        Expected behavior:
+        - Should return fallback results on connection error
+        - Should not raise exception to caller
+        """
+        with patch('src.agents.partner_agent.ChatOpenAI') as mock_llm_class:
+            mock_response = MagicMock()
+            mock_response.content = json.dumps({
+                "synthesis": "Fallback synthesis",
+                "key_findings": ["Fallback finding"],
+                "confidence_score": 0.5
+            })
+
+            mock_llm = AsyncMock()
+            mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+            mock_llm_class.return_value = mock_llm
+
+            agent = PartnerAgent()
+
+            # Mock MCP servers failing
+            with patch('httpx.AsyncClient') as mock_client:
+                mock_client_instance = MagicMock()
+                mock_client_instance.post = AsyncMock(
+                    side_effect=httpx.ConnectError("Connection refused")
+                )
+                mock_client.return_value.__aenter__ = AsyncMock(
+                    return_value=mock_client_instance
+                )
+                mock_client.return_value.__aexit__ = AsyncMock()
+
+                result = await agent.deep_research(
+                    topic="revenue recognition",
+                    state=mock_audit_state
+                )
+
+            # Verify fallback results are used
+            assert len(result.rag_results) > 0
+            assert len(result.web_results) > 0
+
+            # Verify fallback metadata
+            assert any(
+                r.metadata.get("fallback") == True
+                for r in result.rag_results
+            )
+            assert any(
+                r.metadata.get("fallback") == True
+                for r in result.web_results
+            )
+
+    @pytest.mark.asyncio
+    async def test_deep_research_parallel_execution(
+        self,
+        mock_audit_state: AuditState
+    ):
+        """
+        Test deep_research executes RAG and Web searches in parallel.
+
+        Verifies:
+        - Both searches are initiated concurrently
+        - Results from both sources are combined
+        - Total sources_consulted reflects both sources
+
+        Expected behavior:
+        - Should use asyncio.gather for parallel execution
+        - Should combine results from multiple sources
+        """
+        with patch('src.agents.partner_agent.ChatOpenAI') as mock_llm_class:
+            mock_response = MagicMock()
+            mock_response.content = json.dumps({
+                "synthesis": "Combined synthesis",
+                "key_findings": ["Finding from RAG", "Finding from Web"],
+                "confidence_score": 0.75
+            })
+
+            mock_llm = AsyncMock()
+            mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+            mock_llm_class.return_value = mock_llm
+
+            agent = PartnerAgent()
+
+            # Count that both methods are called
+            call_count = {"rag": 0, "web": 0}
+
+            original_search_rag = agent._search_rag
+            original_search_web = agent._search_web
+
+            async def mock_search_rag(*args, **kwargs):
+                call_count["rag"] += 1
+                return agent._get_fallback_rag_results("test")
+
+            async def mock_search_web(*args, **kwargs):
+                call_count["web"] += 1
+                return agent._get_fallback_web_results("test")
+
+            agent._search_rag = mock_search_rag
+            agent._search_web = mock_search_web
+
+            result = await agent.deep_research(
+                topic="inventory valuation",
+                state=mock_audit_state
+            )
+
+            # Verify both search methods were called
+            assert call_count["rag"] == 1
+            assert call_count["web"] == 1
+
+            # Verify combined results
+            assert result.sources_consulted == len(result.rag_results) + len(result.web_results)
+
+    @pytest.mark.asyncio
+    async def test_deep_research_synthesizes_results(
+        self,
+        mock_audit_state: AuditState
+    ):
+        """
+        Test deep_research synthesizes results using LLM.
+
+        Verifies:
+        - LLM is called for synthesis
+        - Synthesis combines RAG and web findings
+        - Key findings are extracted
+        - Regulatory requirements are identified
+
+        Expected behavior:
+        - Should invoke LLM with research results
+        - Should parse synthesis response
+        - Should extract key findings
+        """
+        with patch('src.agents.partner_agent.ChatOpenAI') as mock_llm_class:
+            synthesis_response = {
+                "synthesis": "Revenue recognition under K-IFRS 1115 requires careful analysis...",
+                "key_findings": [
+                    "Revenue recognized when control transfers",
+                    "Five-step model must be applied",
+                    "Timing is critical for audit"
+                ],
+                "regulatory_requirements": [
+                    "K-IFRS 1115 para 31-38",
+                    "K-GAAS 240 fraud risk"
+                ],
+                "audit_risks": [
+                    "Cutoff issues at period end"
+                ],
+                "recommendations": [
+                    "Increase sample size for Q4 transactions"
+                ],
+                "confidence_score": 0.88
+            }
+
+            mock_response = MagicMock()
+            mock_response.content = f"```json\n{json.dumps(synthesis_response)}\n```"
+
+            mock_llm = AsyncMock()
+            mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+            mock_llm_class.return_value = mock_llm
+
+            agent = PartnerAgent()
+
+            # Use fallback results
+            with patch('httpx.AsyncClient') as mock_client:
+                mock_client_instance = MagicMock()
+                mock_client_instance.post = AsyncMock(
+                    side_effect=httpx.ConnectError("Connection refused")
+                )
+                mock_client.return_value.__aenter__ = AsyncMock(
+                    return_value=mock_client_instance
+                )
+                mock_client.return_value.__aexit__ = AsyncMock()
+
+                result = await agent.deep_research(
+                    topic="revenue recognition",
+                    state=mock_audit_state
+                )
+
+            # Verify LLM was called
+            mock_llm.ainvoke.assert_called()
+
+            # Verify synthesis is present
+            assert "K-IFRS 1115" in result.synthesis
+
+            # Verify key findings
+            assert len(result.key_findings) >= 3
+            assert "control" in result.key_findings[0].lower()
+
+            # Verify confidence score
+            assert result.confidence_score == 0.88
+
+            # Verify metadata includes regulatory info
+            assert "regulatory_requirements" in result.metadata
+            assert len(result.metadata["regulatory_requirements"]) >= 1
+
+    @pytest.mark.asyncio
+    async def test_deep_research_includes_client_context_in_metadata(
+        self,
+        mock_audit_state: AuditState
+    ):
+        """
+        Test deep_research includes client context in result metadata.
+
+        Verifies:
+        - Client name is in metadata
+        - Fiscal year is in metadata
+        - Metadata is populated from state
+
+        Expected behavior:
+        - Result metadata should contain client info
+        """
+        with patch('src.agents.partner_agent.ChatOpenAI') as mock_llm_class:
+            mock_response = MagicMock()
+            mock_response.content = json.dumps({
+                "synthesis": "Test synthesis",
+                "key_findings": [],
+                "confidence_score": 0.5
+            })
+
+            mock_llm = AsyncMock()
+            mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+            mock_llm_class.return_value = mock_llm
+
+            agent = PartnerAgent()
+
+            with patch('httpx.AsyncClient') as mock_client:
+                mock_client_instance = MagicMock()
+                mock_client_instance.post = AsyncMock(
+                    side_effect=httpx.ConnectError("Connection refused")
+                )
+                mock_client.return_value.__aenter__ = AsyncMock(
+                    return_value=mock_client_instance
+                )
+                mock_client.return_value.__aexit__ = AsyncMock()
+
+                result = await agent.deep_research(
+                    topic="test topic",
+                    state=mock_audit_state
+                )
+
+            # Verify client context in metadata
+            assert result.metadata["client_name"] == "ABC Manufacturing Co."
+            assert result.metadata["fiscal_year"] == 2024
+
+
+class TestResearchHelperMethods:
+    """Test suite for deep_research helper methods."""
+
+    def test_build_research_context(self, mock_audit_state: AuditState):
+        """
+        Test _build_research_context creates proper context string.
+
+        Verifies:
+        - Context includes client name
+        - Context includes fiscal year
+        - Context includes materiality
+        - Context includes topic
+
+        Expected behavior:
+        - Should return formatted context string
+        """
+        with patch('src.agents.partner_agent.ChatOpenAI'):
+            agent = PartnerAgent()
+
+            context = agent._build_research_context(
+                topic="inventory valuation",
+                state=mock_audit_state
+            )
+
+            assert "ABC Manufacturing Co." in context
+            assert "2024" in context
+            assert "1,000,000.00" in context
+            assert "inventory valuation" in context
+
+    def test_get_fallback_rag_results(self):
+        """
+        Test _get_fallback_rag_results returns valid fallback.
+
+        Verifies:
+        - Returns list of ResearchSource
+        - Includes K-GAAS standards
+        - Has fallback flag in metadata
+
+        Expected behavior:
+        - Should return at least 2 fallback results
+        - All results should have source_type "rag"
+        """
+        with patch('src.agents.partner_agent.ChatOpenAI'):
+            agent = PartnerAgent()
+
+            results = agent._get_fallback_rag_results("test topic")
+
+            assert len(results) >= 2
+            assert all(isinstance(r, ResearchSource) for r in results)
+            assert all(r.source_type == "rag" for r in results)
+            assert all(r.metadata.get("fallback") == True for r in results)
+            assert any("K-GAAS 200" in r.title for r in results)
+
+    def test_get_fallback_web_results(self):
+        """
+        Test _get_fallback_web_results returns valid fallback.
+
+        Verifies:
+        - Returns list of ResearchSource
+        - Includes KICPA guidelines
+        - Has URL for web sources
+        - Has fallback flag in metadata
+
+        Expected behavior:
+        - Should return at least 1 fallback result
+        - All results should have source_type "web"
+        """
+        with patch('src.agents.partner_agent.ChatOpenAI'):
+            agent = PartnerAgent()
+
+            results = agent._get_fallback_web_results("test topic")
+
+            assert len(results) >= 1
+            assert all(isinstance(r, ResearchSource) for r in results)
+            assert all(r.source_type == "web" for r in results)
+            assert all(r.url is not None for r in results)
+            assert all(r.metadata.get("fallback") == True for r in results)
+
+    def test_parse_synthesis_response_with_json_block(self):
+        """
+        Test _parse_synthesis_response with markdown JSON block.
+
+        Verifies:
+        - Extracts JSON from markdown code block
+        - Returns dict with expected fields
+
+        Expected behavior:
+        - Should parse JSON from ```json block
+        """
+        with patch('src.agents.partner_agent.ChatOpenAI'):
+            agent = PartnerAgent()
+
+            content = """Here's the synthesis:
+
+```json
+{
+    "synthesis": "Comprehensive analysis",
+    "key_findings": ["Finding 1"],
+    "confidence_score": 0.85
+}
+```
+"""
+            result = agent._parse_synthesis_response(content)
+
+            assert result["synthesis"] == "Comprehensive analysis"
+            assert result["key_findings"] == ["Finding 1"]
+            assert result["confidence_score"] == 0.85
+
+    def test_parse_synthesis_response_with_plain_json(self):
+        """
+        Test _parse_synthesis_response with plain JSON.
+
+        Verifies:
+        - Parses plain JSON (no markdown)
+        - Returns dict with expected fields
+
+        Expected behavior:
+        - Should parse plain JSON content
+        """
+        with patch('src.agents.partner_agent.ChatOpenAI'):
+            agent = PartnerAgent()
+
+            content = json.dumps({
+                "synthesis": "Plain JSON synthesis",
+                "key_findings": ["Finding A", "Finding B"],
+                "confidence_score": 0.75
+            })
+
+            result = agent._parse_synthesis_response(content)
+
+            assert result["synthesis"] == "Plain JSON synthesis"
+            assert len(result["key_findings"]) == 2
+
+    def test_parse_synthesis_response_fallback_on_invalid_json(self):
+        """
+        Test _parse_synthesis_response returns fallback for invalid JSON.
+
+        Verifies:
+        - Invalid JSON triggers fallback
+        - Fallback has expected structure
+        - Content is preserved in synthesis field
+
+        Expected behavior:
+        - Should return fallback structure
+        - Should preserve original content
+        """
+        with patch('src.agents.partner_agent.ChatOpenAI'):
+            agent = PartnerAgent()
+
+            content = "This is not valid JSON, just plain text analysis."
+
+            result = agent._parse_synthesis_response(content)
+
+            # Should return fallback structure
+            assert "synthesis" in result
+            assert "key_findings" in result
+            assert "confidence_score" in result
+
+            # Fallback confidence score is 0.5
+            assert result["confidence_score"] == 0.5
+
+            # Original content should be in synthesis
+            assert "plain text" in result["synthesis"]
+
+
+class TestRAGIntegration:
+    """Test suite for RAG MCP integration."""
+
+    @pytest.mark.asyncio
+    async def test_search_rag_success(self, mock_audit_state: AuditState):
+        """
+        Test _search_rag successfully retrieves from MCP RAG server.
+
+        Verifies:
+        - Constructs proper request to MCP server
+        - Parses response into ResearchSource list
+        - Includes relevance scores
+
+        Expected behavior:
+        - Should return list of ResearchSource objects
+        - Should preserve standard codes and paragraph numbers
+        """
+        with patch('src.agents.partner_agent.ChatOpenAI'):
+            agent = PartnerAgent()
+
+            mock_rag_response = {
+                "results": [
+                    {
+                        "paragraph_id": "kifrs1115-31",
+                        "standard_code": "K-IFRS 1115",
+                        "paragraph_number": "31",
+                        "content": "수익 인식 기준",
+                        "score": 0.95,
+                        "metadata": {"category": "revenue"}
+                    },
+                    {
+                        "paragraph_id": "kifrs1115-32",
+                        "standard_code": "K-IFRS 1115",
+                        "paragraph_number": "32",
+                        "content": "통제 이전 시점",
+                        "score": 0.90,
+                        "metadata": {"category": "revenue"}
+                    }
+                ]
+            }
+
+            with patch('httpx.AsyncClient') as mock_client:
+                mock_response = MagicMock()
+                mock_response.json.return_value = mock_rag_response
+                mock_response.raise_for_status = MagicMock()
+
+                mock_client_instance = MagicMock()
+                mock_client_instance.post = AsyncMock(return_value=mock_response)
+                mock_client.return_value.__aenter__ = AsyncMock(
+                    return_value=mock_client_instance
+                )
+                mock_client.return_value.__aexit__ = AsyncMock()
+
+                results = await agent._search_rag(
+                    topic="revenue recognition",
+                    context="Test context",
+                    base_url="http://localhost:8001",
+                    timeout=30.0
+                )
+
+            assert len(results) == 2
+            assert all(isinstance(r, ResearchSource) for r in results)
+            assert results[0].source_type == "rag"
+            assert "K-IFRS 1115" in results[0].title
+            assert results[0].relevance_score == 0.95
+
+    @pytest.mark.asyncio
+    async def test_search_rag_fallback_on_error(self):
+        """
+        Test _search_rag returns fallback on connection error.
+
+        Verifies:
+        - Connection errors don't crash
+        - Fallback results are returned
+        - Fallback flag is set
+
+        Expected behavior:
+        - Should return fallback results on connection error
+        """
+        with patch('src.agents.partner_agent.ChatOpenAI'):
+            agent = PartnerAgent()
+
+            with patch('httpx.AsyncClient') as mock_client:
+                mock_client_instance = MagicMock()
+                mock_client_instance.post = AsyncMock(
+                    side_effect=httpx.ConnectError("Connection refused")
+                )
+                mock_client.return_value.__aenter__ = AsyncMock(
+                    return_value=mock_client_instance
+                )
+                mock_client.return_value.__aexit__ = AsyncMock()
+
+                results = await agent._search_rag(
+                    topic="test",
+                    context="",
+                    base_url="http://localhost:8001",
+                    timeout=30.0
+                )
+
+            # Should return fallback results
+            assert len(results) >= 1
+            assert all(r.metadata.get("fallback") == True for r in results)
+
+
+class TestWebIntegration:
+    """Test suite for Web MCP integration."""
+
+    @pytest.mark.asyncio
+    async def test_search_web_success(self, mock_audit_state: AuditState):
+        """
+        Test _search_web successfully retrieves from MCP Web server.
+
+        Verifies:
+        - Constructs audit-focused query
+        - Parses response into ResearchSource list
+        - Includes URLs for web sources
+
+        Expected behavior:
+        - Should return list of ResearchSource objects
+        - Should include URLs and titles
+        """
+        with patch('src.agents.partner_agent.ChatOpenAI'):
+            agent = PartnerAgent()
+
+            mock_web_response = {
+                "results": [
+                    {
+                        "title": "Revenue Recognition Best Practices",
+                        "snippet": "Industry guidance on revenue recognition...",
+                        "url": "https://example.com/revenue-guide",
+                        "score": 0.8,
+                        "source": "web",
+                        "date": "2024-01-15"
+                    }
+                ]
+            }
+
+            with patch('httpx.AsyncClient') as mock_client:
+                mock_response = MagicMock()
+                mock_response.json.return_value = mock_web_response
+                mock_response.raise_for_status = MagicMock()
+
+                mock_client_instance = MagicMock()
+                mock_client_instance.post = AsyncMock(return_value=mock_response)
+                mock_client.return_value.__aenter__ = AsyncMock(
+                    return_value=mock_client_instance
+                )
+                mock_client.return_value.__aexit__ = AsyncMock()
+
+                results = await agent._search_web(
+                    topic="revenue recognition",
+                    context="Test context",
+                    base_url="http://localhost:8002",
+                    timeout=30.0
+                )
+
+            assert len(results) == 1
+            assert results[0].source_type == "web"
+            assert results[0].url == "https://example.com/revenue-guide"
+            assert results[0].title == "Revenue Recognition Best Practices"
+
+    @pytest.mark.asyncio
+    async def test_search_web_fallback_on_error(self):
+        """
+        Test _search_web returns fallback on connection error.
+
+        Verifies:
+        - Connection errors don't crash
+        - Fallback results are returned
+        - Fallback has valid URL
+
+        Expected behavior:
+        - Should return fallback results on connection error
+        """
+        with patch('src.agents.partner_agent.ChatOpenAI'):
+            agent = PartnerAgent()
+
+            with patch('httpx.AsyncClient') as mock_client:
+                mock_client_instance = MagicMock()
+                mock_client_instance.post = AsyncMock(
+                    side_effect=httpx.TimeoutException("Timeout")
+                )
+                mock_client.return_value.__aenter__ = AsyncMock(
+                    return_value=mock_client_instance
+                )
+                mock_client.return_value.__aexit__ = AsyncMock()
+
+                results = await agent._search_web(
+                    topic="test",
+                    context="",
+                    base_url="http://localhost:8002",
+                    timeout=30.0
+                )
+
+            # Should return fallback results
+            assert len(results) >= 1
+            assert all(r.metadata.get("fallback") == True for r in results)
+            assert all(r.url is not None for r in results)
 
 
 if __name__ == "__main__":

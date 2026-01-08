@@ -12,12 +12,93 @@ responsible for:
 Reference: AUDIT_PLATFORM_SPECIFICATION.md Section 4.3
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+from dataclasses import dataclass
 import json
 import re
+import asyncio
+import httpx
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from ..graph.state import AuditState
+
+
+# ============================================================================
+# RESEARCH DATA STRUCTURES
+# ============================================================================
+
+@dataclass
+class ResearchSource:
+    """Represents a single research source result."""
+    source_type: str  # "rag" | "web"
+    title: str
+    content: str
+    url: Optional[str] = None
+    relevance_score: float = 0.0
+    metadata: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class DeepResearchResult:
+    """Aggregated result from deep research across multiple sources."""
+    topic: str
+    rag_results: List[ResearchSource]
+    web_results: List[ResearchSource]
+    synthesis: str
+    key_findings: List[str]
+    sources_consulted: int
+    confidence_score: float
+    metadata: Dict[str, Any]
+
+
+# ============================================================================
+# RESEARCH SYNTHESIS PROMPT
+# ============================================================================
+
+RESEARCH_SYNTHESIS_PROMPT = """You are a senior audit partner synthesizing research findings.
+
+Given the following research results from multiple sources, create a comprehensive synthesis:
+
+TOPIC: {topic}
+
+RAG KNOWLEDGE BASE RESULTS (K-IFRS/K-GAAS Standards):
+{rag_results}
+
+WEB RESEARCH RESULTS:
+{web_results}
+
+Your synthesis should:
+1. Identify key findings relevant to the audit topic
+2. Highlight relevant regulatory requirements (K-IFRS, K-GAAS)
+3. Note any best practices or industry guidance
+4. Flag potential audit risks or areas requiring attention
+5. Provide actionable recommendations for the audit team
+
+Output format:
+```json
+{{
+  "synthesis": "Comprehensive summary of all findings...",
+  "key_findings": [
+    "Finding 1...",
+    "Finding 2...",
+    "Finding 3..."
+  ],
+  "regulatory_requirements": [
+    "K-IFRS/K-GAAS requirement 1...",
+    "K-IFRS/K-GAAS requirement 2..."
+  ],
+  "audit_risks": [
+    "Risk area 1...",
+    "Risk area 2..."
+  ],
+  "recommendations": [
+    "Recommendation 1...",
+    "Recommendation 2..."
+  ],
+  "confidence_score": 0.85
+}}
+```
+"""
 
 
 # Partner persona system prompt (Section 4.3 from specification)
@@ -396,3 +477,347 @@ Provide your plan in the JSON format specified in the system prompt.
             enriched.append(enriched_task)
 
         return enriched
+
+    # ========================================================================
+    # DEEP RESEARCH METHODS (BE-10.1)
+    # ========================================================================
+
+    async def deep_research(
+        self,
+        topic: str,
+        state: AuditState,
+        rag_base_url: str = "http://localhost:8001",
+        web_base_url: str = "http://localhost:8002",
+        timeout: float = 30.0
+    ) -> DeepResearchResult:
+        """
+        Perform deep research on a topic using RAG and Web integration.
+
+        This method combines multiple research sources to provide comprehensive
+        audit-relevant information:
+        1. RAG search on K-IFRS/K-GAAS knowledge base
+        2. Web research for industry practices and recent developments
+        3. LLM-based synthesis of all findings
+
+        Args:
+            topic: Research topic (e.g., "revenue recognition timing")
+            state: Current AuditState for context
+            rag_base_url: MCP RAG server URL (default: localhost:8001)
+            web_base_url: MCP Web Research server URL (default: localhost:8002)
+            timeout: Request timeout in seconds (default: 30s)
+
+        Returns:
+            DeepResearchResult containing synthesized findings from all sources
+
+        Raises:
+            TimeoutError: If research exceeds timeout
+            ValueError: If topic is empty
+        """
+        if not topic or not topic.strip():
+            raise ValueError("Research topic cannot be empty")
+
+        # Build context from state
+        client_context = self._build_research_context(topic, state)
+
+        # Perform parallel research from multiple sources
+        rag_results, web_results = await asyncio.gather(
+            self._search_rag(topic, client_context, rag_base_url, timeout),
+            self._search_web(topic, client_context, web_base_url, timeout),
+            return_exceptions=True
+        )
+
+        # Handle exceptions from parallel execution
+        if isinstance(rag_results, Exception):
+            rag_results = self._get_fallback_rag_results(topic)
+        if isinstance(web_results, Exception):
+            web_results = self._get_fallback_web_results(topic)
+
+        # Synthesize results using LLM
+        synthesis_result = await self._synthesize_research(
+            topic, rag_results, web_results
+        )
+
+        # Build final result
+        return DeepResearchResult(
+            topic=topic,
+            rag_results=rag_results,
+            web_results=web_results,
+            synthesis=synthesis_result.get("synthesis", ""),
+            key_findings=synthesis_result.get("key_findings", []),
+            sources_consulted=len(rag_results) + len(web_results),
+            confidence_score=synthesis_result.get("confidence_score", 0.5),
+            metadata={
+                "client_name": state.get("client_name", "Unknown"),
+                "fiscal_year": state.get("fiscal_year", "Unknown"),
+                "regulatory_requirements": synthesis_result.get(
+                    "regulatory_requirements", []
+                ),
+                "audit_risks": synthesis_result.get("audit_risks", []),
+                "recommendations": synthesis_result.get("recommendations", [])
+            }
+        )
+
+    def _build_research_context(self, topic: str, state: AuditState) -> str:
+        """
+        Build context string for research queries.
+
+        Args:
+            topic: Research topic
+            state: Current AuditState
+
+        Returns:
+            Formatted context string
+        """
+        return f"""
+Client: {state.get('client_name', 'Unknown')}
+Fiscal Year: {state.get('fiscal_year', 'Unknown')}
+Materiality: ${state.get('overall_materiality', 0):,.2f}
+Research Topic: {topic}
+"""
+
+    async def _search_rag(
+        self,
+        topic: str,
+        context: str,
+        base_url: str,
+        timeout: float
+    ) -> List[ResearchSource]:
+        """
+        Search the RAG knowledge base for K-IFRS/K-GAAS standards.
+
+        Args:
+            topic: Search topic
+            context: Client context for filtering
+            base_url: MCP RAG server URL
+            timeout: Request timeout
+
+        Returns:
+            List of ResearchSource results from RAG
+        """
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            try:
+                response = await client.post(
+                    f"{base_url}/search_standards",
+                    json={
+                        "query": topic,
+                        "top_k": 10,
+                        "filters": {}
+                    }
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                return [
+                    ResearchSource(
+                        source_type="rag",
+                        title=f"{r.get('standard_code', 'N/A')} 문단 {r.get('paragraph_number', 'N/A')}",
+                        content=r.get("content", ""),
+                        url=None,
+                        relevance_score=r.get("score", 0.0),
+                        metadata={
+                            "paragraph_id": r.get("paragraph_id"),
+                            "standard_code": r.get("standard_code"),
+                            "paragraph_number": r.get("paragraph_number"),
+                            **r.get("metadata", {})
+                        }
+                    )
+                    for r in data.get("results", [])
+                ]
+            except (httpx.HTTPError, httpx.TimeoutException) as e:
+                # Return fallback on error
+                return self._get_fallback_rag_results(topic)
+
+    async def _search_web(
+        self,
+        topic: str,
+        context: str,
+        base_url: str,
+        timeout: float
+    ) -> List[ResearchSource]:
+        """
+        Search the web for relevant audit information.
+
+        Args:
+            topic: Search topic
+            context: Client context for filtering
+            base_url: MCP Web Research server URL
+            timeout: Request timeout
+
+        Returns:
+            List of ResearchSource results from web search
+        """
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            try:
+                # Construct audit-focused search query
+                audit_query = f"audit {topic} best practices standards"
+
+                response = await client.post(
+                    f"{base_url}/search",
+                    json={
+                        "query": audit_query,
+                        "max_results": 5,
+                        "language": "ko"  # Korean language preference
+                    }
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                return [
+                    ResearchSource(
+                        source_type="web",
+                        title=r.get("title", "Untitled"),
+                        content=r.get("snippet", r.get("content", "")),
+                        url=r.get("url"),
+                        relevance_score=r.get("score", 0.5),
+                        metadata={
+                            "source": r.get("source", "web"),
+                            "date": r.get("date"),
+                            **r.get("metadata", {})
+                        }
+                    )
+                    for r in data.get("results", [])
+                ]
+            except (httpx.HTTPError, httpx.TimeoutException) as e:
+                # Return fallback on error
+                return self._get_fallback_web_results(topic)
+
+    def _get_fallback_rag_results(self, topic: str) -> List[ResearchSource]:
+        """
+        Return fallback RAG results when MCP server is unavailable.
+
+        Args:
+            topic: Research topic
+
+        Returns:
+            List of fallback ResearchSource results
+        """
+        return [
+            ResearchSource(
+                source_type="rag",
+                title="K-GAAS 200: 독립된 감사인의 전반적인 목적",
+                content="재무제표감사를 수행하는 독립된 감사인의 전반적인 목적은 재무제표가 "
+                        "중요성의 관점에서 해당 재무보고체계에 따라 작성되었는지에 대한 "
+                        "합리적인 확신을 얻는 것이다.",
+                relevance_score=0.7,
+                metadata={"fallback": True, "standard_code": "K-GAAS 200"}
+            ),
+            ResearchSource(
+                source_type="rag",
+                title="K-GAAS 315: 중요한 왜곡표시위험의 식별과 평가",
+                content="감사인은 재무제표 전체 수준과 경영진 주장 수준에서의 중요한 왜곡표시위험을 "
+                        "식별하고 평가하기 위하여 기업과 기업환경 및 기업의 내부통제에 대한 이해를 해야 한다.",
+                relevance_score=0.65,
+                metadata={"fallback": True, "standard_code": "K-GAAS 315"}
+            )
+        ]
+
+    def _get_fallback_web_results(self, topic: str) -> List[ResearchSource]:
+        """
+        Return fallback web results when MCP server is unavailable.
+
+        Args:
+            topic: Research topic
+
+        Returns:
+            List of fallback ResearchSource results
+        """
+        return [
+            ResearchSource(
+                source_type="web",
+                title="Audit Best Practices - KICPA Guidelines",
+                content="한국공인회계사회(KICPA)에서 제공하는 감사 실무 가이드라인에 따르면, "
+                        "감사인은 전문가적 의구심을 유지하고 충분하고 적합한 감사증거를 수집해야 합니다.",
+                url="https://www.kicpa.or.kr/audit-guidelines",
+                relevance_score=0.6,
+                metadata={"fallback": True, "source": "KICPA"}
+            )
+        ]
+
+    async def _synthesize_research(
+        self,
+        topic: str,
+        rag_results: List[ResearchSource],
+        web_results: List[ResearchSource]
+    ) -> Dict[str, Any]:
+        """
+        Synthesize research results using LLM.
+
+        Args:
+            topic: Research topic
+            rag_results: Results from RAG knowledge base
+            web_results: Results from web search
+
+        Returns:
+            Dict containing synthesis, key_findings, and confidence_score
+        """
+        # Format RAG results for prompt
+        rag_formatted = "\n".join([
+            f"- {r.title}: {r.content[:300]}..."
+            if len(r.content) > 300 else f"- {r.title}: {r.content}"
+            for r in rag_results
+        ]) or "No RAG results available."
+
+        # Format web results for prompt
+        web_formatted = "\n".join([
+            f"- [{r.title}]({r.url}): {r.content[:200]}..."
+            if r.url and len(r.content) > 200
+            else f"- {r.title}: {r.content}"
+            for r in web_results
+        ]) or "No web results available."
+
+        # Build synthesis prompt
+        prompt = RESEARCH_SYNTHESIS_PROMPT.format(
+            topic=topic,
+            rag_results=rag_formatted,
+            web_results=web_formatted
+        )
+
+        # Invoke LLM for synthesis
+        response = await self.llm.ainvoke([
+            SystemMessage(content="You are an expert audit partner synthesizing research."),
+            HumanMessage(content=prompt)
+        ])
+
+        # Parse LLM response
+        return self._parse_synthesis_response(response.content)
+
+    def _parse_synthesis_response(self, content: str) -> Dict[str, Any]:
+        """
+        Parse LLM synthesis response into structured format.
+
+        Args:
+            content: Raw LLM response content
+
+        Returns:
+            Dict with synthesis, key_findings, and other fields
+        """
+        # Try to extract JSON from response
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+
+        if json_match:
+            try:
+                result = json.loads(json_match.group(1))
+                return result
+            except json.JSONDecodeError:
+                pass
+
+        # Try to parse entire content as JSON
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+
+        # Return fallback structure
+        return {
+            "synthesis": content[:500] if content else "Research synthesis unavailable.",
+            "key_findings": [
+                "Research completed with partial results.",
+                "Manual review recommended for comprehensive analysis."
+            ],
+            "regulatory_requirements": [],
+            "audit_risks": [],
+            "recommendations": [
+                "Consult with audit team for additional context."
+            ],
+            "confidence_score": 0.5
+        }
