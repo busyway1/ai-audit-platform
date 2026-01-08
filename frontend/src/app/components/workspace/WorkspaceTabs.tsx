@@ -6,6 +6,7 @@ import {
   AlertCircle,
   FolderOpen,
   Clipboard,
+  Shield,
 } from 'lucide-react';
 
 interface Tab {
@@ -44,6 +45,11 @@ const tabs: Tab[] = [
     name: 'Working Papers',
     path: '/workspace/working-papers',
     icon: Clipboard,
+  },
+  {
+    name: 'EGAs',
+    path: '/workspace/egas',
+    icon: Shield,
   },
 ];
 

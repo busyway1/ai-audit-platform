@@ -9,6 +9,7 @@ import { Documents } from './components/Documents';
 import { WorkingPaperViewer } from './components/WorkingPaperViewer';
 import { EngagementPlan } from './components/EngagementPlan';
 import { AgentToolsSettings } from './components/settings/AgentToolsSettings';
+import { EGAList } from './components/ega/EGAList';
 
 // Placeholder component for User Preferences (Phase 3)
 function UserPreferences() {
@@ -68,6 +69,12 @@ const workspaceWorkingPapersRoute = new Route({
   component: WorkingPaperViewer,
 });
 
+const workspaceEGAsRoute = new Route({
+  getParentRoute: () => workspaceRoute,
+  path: 'egas',
+  component: EGAList,
+});
+
 // Redirect /workspace to /workspace/dashboard
 const workspaceIndexRoute = new Route({
   getParentRoute: () => workspaceRoute,
@@ -122,6 +129,7 @@ const routeTree = rootRoute.addChildren([
     workspaceIssuesRoute,
     workspaceDocumentsRoute,
     workspaceWorkingPapersRoute,
+    workspaceEGAsRoute,
   ]),
   settingsRoute.addChildren([
     settingsIndexRoute,
