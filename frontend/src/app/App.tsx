@@ -11,6 +11,7 @@ import { EngagementPlan } from './components/EngagementPlan';
 import { AgentToolsSettings } from './components/settings/AgentToolsSettings';
 import { EGAList } from './components/ega/EGAList';
 import { TaskHierarchyTree } from './components/tasks/TaskHierarchyTree';
+import { HITLQueue } from './components/hitl/HITLQueue';
 
 // Placeholder component for User Preferences (Phase 3)
 function UserPreferences() {
@@ -76,6 +77,12 @@ const workspaceEGAsRoute = new Route({
   component: EGAList,
 });
 
+const workspaceHITLRoute = new Route({
+  getParentRoute: () => workspaceRoute,
+  path: 'hitl',
+  component: HITLQueue,
+});
+
 // Redirect /workspace to /workspace/dashboard
 const workspaceIndexRoute = new Route({
   getParentRoute: () => workspaceRoute,
@@ -131,6 +138,7 @@ const routeTree = rootRoute.addChildren([
     workspaceDocumentsRoute,
     workspaceWorkingPapersRoute,
     workspaceEGAsRoute,
+    workspaceHITLRoute,
   ]),
   settingsRoute.addChildren([
     settingsIndexRoute,
