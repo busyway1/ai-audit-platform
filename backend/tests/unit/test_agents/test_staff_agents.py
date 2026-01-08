@@ -31,6 +31,79 @@ def mock_chat_openai():
     with patch('src.agents.staff_agents.ChatOpenAI'):
         yield
 
+
+@pytest.fixture
+def mock_mcp_rag_client():
+    """
+    Fixture to mock MCPRagClient for StandardRetrieverAgent tests.
+
+    Returns mock search results that simulate MCP RAG server responses.
+    """
+    mock_search_result = {
+        "status": "success",
+        "data": {
+            "query": "Sales 회계처리 기준",
+            "mode": "hybrid",
+            "results_count": 3,
+            "results": [
+                {
+                    "id": "1",
+                    "content": "K-IFRS 1115 고객과의 계약에서 생기는 수익 - 수익인식 5단계 모형을 적용하여 수익을 인식한다.",
+                    "paragraph_no": "31",
+                    "standard_id": "K-IFRS 1115",
+                    "hierarchy_path": "K-IFRS.1115.31",
+                    "topic": "수익인식",
+                    "title": "수익인식 시점",
+                    "section_type": "main",
+                    "scores": {"bm25": 0.85, "vector": 0.92, "combined": 0.89},
+                    "rank": 1,
+                    "related_paragraphs": ["32", "33", "34"]
+                },
+                {
+                    "id": "2",
+                    "content": "K-GAAS 500 감사증거 - 감사인은 충분하고 적합한 감사증거를 입수해야 한다.",
+                    "paragraph_no": "A1",
+                    "standard_id": "K-GAAS 500",
+                    "hierarchy_path": "K-GAAS.500.A1",
+                    "topic": "감사증거",
+                    "title": "감사증거 요구사항",
+                    "section_type": "main",
+                    "scores": {"bm25": 0.78, "vector": 0.85, "combined": 0.82},
+                    "rank": 2,
+                    "related_paragraphs": ["A2", "A3"]
+                },
+                {
+                    "id": "3",
+                    "content": "K-GAAS 330 평가된 위험에 대한 감사인의 대응 - 실증절차 설계 요구사항.",
+                    "paragraph_no": "5",
+                    "standard_id": "K-GAAS 330",
+                    "hierarchy_path": "K-GAAS.330.5",
+                    "topic": "위험대응",
+                    "title": "실증절차",
+                    "section_type": "main",
+                    "scores": {"bm25": 0.72, "vector": 0.80, "combined": 0.76},
+                    "rank": 3,
+                    "related_paragraphs": ["6", "7"]
+                }
+            ],
+            "metadata": {
+                "bm25_candidates": 50,
+                "vector_candidates": 50,
+                "bm25_weight": 0.3,
+                "vector_weight": 0.7,
+                "fusion_method": "RRF",
+                "duration_ms": 125.5
+            }
+        }
+    }
+
+    with patch('src.agents.staff_agents.MCPRagClient') as mock_client_class:
+        mock_instance = AsyncMock()
+        mock_instance.search_standards = AsyncMock(return_value=mock_search_result)
+        mock_client_class.return_value = mock_instance
+        yield mock_instance
+
+
 from src.agents.staff_agents import (
     ExcelParserAgent,
     StandardRetrieverAgent,
@@ -61,6 +134,7 @@ def mock_task_state() -> Dict[str, Any]:
         "messages": [],
         "raw_data": {},
         "standards": [],
+        "search_metadata": {},  # MCP search metadata for debugging
         "vouching_logs": [],
         "workpaper_draft": "",
         "next_staff": "ExcelParser",
@@ -356,7 +430,7 @@ class TestExcelParserAgent:
 # ============================================================================
 
 class TestStandardRetrieverAgent:
-    """Test suite for StandardRetrieverAgent."""
+    """Test suite for StandardRetrieverAgent with MCP RAG integration."""
 
     def test_initialization(self):
         """Test StandardRetrieverAgent initialization with default model."""
@@ -374,14 +448,16 @@ class TestStandardRetrieverAgent:
             mock_llm_class.assert_called_once_with(model=custom_model)
 
     @pytest.mark.asyncio
-    async def test_standard_retriever_returns_mock_standards(self, mock_task_state_with_raw_data):
+    async def test_standard_retriever_returns_standards_from_mcp(
+        self, mock_task_state_with_raw_data, mock_mcp_rag_client
+    ):
         """
-        Test StandardRetrieverAgent returns standards for Sales category.
+        Test StandardRetrieverAgent returns standards from MCP RAG server.
 
         Verifies:
-        - Returns dict with 'standards' and 'messages' keys
-        - Standards list contains K-IFRS and K-GAAS references
-        - Standards are appropriately formatted
+        - Returns dict with 'standards', 'search_metadata', and 'messages' keys
+        - Standards list contains K-IFRS and K-GAAS references from MCP
+        - Search metadata includes duration and search parameters
         """
         agent = StandardRetrieverAgent()
 
@@ -390,27 +466,37 @@ class TestStandardRetrieverAgent:
         # Verify return structure
         assert isinstance(result, dict)
         assert "standards" in result
+        assert "search_metadata" in result
         assert "messages" in result
 
-        # Verify standards list
+        # Verify standards list from MCP
         standards = result["standards"]
         assert isinstance(standards, list)
-        assert len(standards) >= 3
+        assert len(standards) == 3  # Mock returns 3 results
 
         # Verify standard format (contains K-IFRS or K-GAAS references)
         for standard in standards:
             assert isinstance(standard, str)
             assert "K-IFRS" in standard or "K-GAAS" in standard
 
+        # Verify search_metadata
+        metadata = result["search_metadata"]
+        assert metadata.get("duration_ms") == 125.5
+        assert metadata.get("fusion_method") == "RRF"
+
+        # Verify MCP client was called
+        mock_mcp_rag_client.search_standards.assert_called_once()
+
     @pytest.mark.asyncio
-    async def test_standard_retriever_sales_category(self, mock_task_state_with_raw_data):
+    async def test_standard_retriever_sales_category(
+        self, mock_task_state_with_raw_data, mock_mcp_rag_client
+    ):
         """
-        Test StandardRetrieverAgent returns correct standards for Sales category.
+        Test StandardRetrieverAgent calls MCP with correct query for Sales category.
 
         Verifies:
-        - Sales category returns revenue-specific standards
-        - Includes K-IFRS 1115 (Revenue)
-        - Includes K-GAAS 500, 330
+        - MCP client is called with Sales category query
+        - Returns formatted standards from MCP response
         """
         mock_task_state_with_raw_data["category"] = "Sales"
         agent = StandardRetrieverAgent()
@@ -418,71 +504,99 @@ class TestStandardRetrieverAgent:
         result = await agent.run(mock_task_state_with_raw_data)
         standards_content = " ".join(result["standards"])
 
-        assert "1115" in standards_content or "Revenue" in standards_content
-        assert "500" in standards_content or "Audit Evidence" in standards_content
-        assert "330" in standards_content or "Responses" in standards_content
+        # Verify MCP was called with Sales category
+        call_args = mock_mcp_rag_client.search_standards.call_args
+        assert "Sales" in call_args.kwargs["query_text"]
+        assert call_args.kwargs["top_k"] == 30
+        assert call_args.kwargs["mode"] == "hybrid"
+
+        # Verify standards contain expected content from mock
+        assert "1115" in standards_content
 
     @pytest.mark.asyncio
-    async def test_standard_retriever_inventory_category(self, mock_task_state_with_raw_data):
+    async def test_standard_retriever_inventory_category(
+        self, mock_task_state_with_raw_data, mock_mcp_rag_client
+    ):
         """
-        Test StandardRetrieverAgent returns correct standards for Inventory category.
-
-        Verifies:
-        - Inventory category returns inventory-specific standards
-        - Includes K-IFRS 1002 (Inventories)
+        Test StandardRetrieverAgent calls MCP with correct query for Inventory category.
         """
         mock_task_state_with_raw_data["category"] = "Inventory"
         agent = StandardRetrieverAgent()
 
-        result = await agent.run(mock_task_state_with_raw_data)
-        standards_content = " ".join(result["standards"])
+        await agent.run(mock_task_state_with_raw_data)
 
-        assert "1002" in standards_content or "Inventories" in standards_content
+        # Verify MCP was called with Inventory category
+        call_args = mock_mcp_rag_client.search_standards.call_args
+        assert "Inventory" in call_args.kwargs["query_text"]
 
     @pytest.mark.asyncio
-    async def test_standard_retriever_ar_category(self, mock_task_state_with_raw_data):
+    async def test_standard_retriever_ar_category(
+        self, mock_task_state_with_raw_data, mock_mcp_rag_client
+    ):
         """
-        Test StandardRetrieverAgent returns correct standards for AR category.
-
-        Verifies:
-        - AR category returns receivable-specific standards
-        - Includes K-IFRS 1109 (Financial Instruments)
+        Test StandardRetrieverAgent calls MCP with correct query for AR category.
         """
         mock_task_state_with_raw_data["category"] = "AR"
         agent = StandardRetrieverAgent()
 
-        result = await agent.run(mock_task_state_with_raw_data)
-        standards_content = " ".join(result["standards"])
+        await agent.run(mock_task_state_with_raw_data)
 
-        assert "1109" in standards_content or "Financial Instruments" in standards_content
+        # Verify MCP was called with AR category
+        call_args = mock_mcp_rag_client.search_standards.call_args
+        assert "AR" in call_args.kwargs["query_text"]
 
     @pytest.mark.asyncio
-    async def test_standard_retriever_unknown_category_fallback(self, mock_task_state_with_raw_data):
+    async def test_standard_retriever_handles_mcp_error(
+        self, mock_task_state_with_raw_data, mock_mcp_rag_client
+    ):
         """
-        Test StandardRetrieverAgent returns default standards for unknown category.
+        Test StandardRetrieverAgent handles MCP errors gracefully.
 
         Verifies:
-        - Unknown category returns generic K-GAAS standards
-        - Fallback includes K-GAAS 200, 315
+        - Returns empty standards on MCP error
+        - Error is logged and captured in search_metadata
         """
-        mock_task_state_with_raw_data["category"] = "UnknownCategory"
+        from src.services.mcp_client import MCPRagClientError
+
+        mock_mcp_rag_client.search_standards.side_effect = MCPRagClientError("Connection failed")
         agent = StandardRetrieverAgent()
 
         result = await agent.run(mock_task_state_with_raw_data)
-        standards_content = " ".join(result["standards"])
 
-        assert "200" in standards_content or "Overall Objectives" in standards_content
-        assert "315" in standards_content or "Risks" in standards_content
+        # Should return empty standards on error
+        assert result["standards"] == []
+        assert "error" in result["search_metadata"]
+        assert "MCPRagClientError" in result["search_metadata"]["error_type"]
 
     @pytest.mark.asyncio
-    async def test_standard_retriever_formats_standards(self, mock_task_state_with_raw_data):
+    async def test_standard_retriever_handles_mcp_non_success_status(
+        self, mock_task_state_with_raw_data, mock_mcp_rag_client
+    ):
+        """
+        Test StandardRetrieverAgent handles MCP non-success status.
+        """
+        mock_mcp_rag_client.search_standards.return_value = {
+            "status": "error",
+            "message": "Search index unavailable"
+        }
+        agent = StandardRetrieverAgent()
+
+        result = await agent.run(mock_task_state_with_raw_data)
+
+        # Should return empty standards on non-success
+        assert result["standards"] == []
+        assert "error" in result["search_metadata"]
+
+    @pytest.mark.asyncio
+    async def test_standard_retriever_formats_standards_message(
+        self, mock_task_state_with_raw_data, mock_mcp_rag_client
+    ):
         """
         Test StandardRetrieverAgent properly formats standards message.
 
         Verifies:
         - Message contains agent name
-        - Message lists all standards
-        - Message format is professional
+        - Message includes search duration from MCP
         """
         agent = StandardRetrieverAgent()
 
@@ -493,18 +607,14 @@ class TestStandardRetrieverAgent:
         assert msg.name == "Staff_Standard_Retriever"
         assert "Staff_Standard_Retriever" in msg.content
         assert "Retrieved" in msg.content
-
-        # Verify each standard is in message
-        for standard in result["standards"]:
-            assert standard in msg.content
+        assert "125.5ms" in msg.content  # Duration from mock
 
     @pytest.mark.asyncio
-    async def test_standard_retriever_count_in_message(self, mock_task_state_with_raw_data):
+    async def test_standard_retriever_count_in_message(
+        self, mock_task_state_with_raw_data, mock_mcp_rag_client
+    ):
         """
         Test StandardRetrieverAgent includes standard count in message.
-
-        Verifies:
-        - Message mentions number of standards retrieved
         """
         agent = StandardRetrieverAgent()
 
@@ -515,12 +625,12 @@ class TestStandardRetrieverAgent:
         assert str(standard_count) in msg.content
 
     @pytest.mark.asyncio
-    async def test_standard_retriever_handles_missing_category(self):
+    async def test_standard_retriever_handles_missing_category(self, mock_mcp_rag_client):
         """
         Test StandardRetrieverAgent handles missing category gracefully.
 
         Verifies:
-        - Uses default category when missing
+        - Uses default empty category when missing
         """
         state = {
             "task_id": "TASK-001",
@@ -531,10 +641,11 @@ class TestStandardRetrieverAgent:
         result = await agent.run(state)
 
         assert "standards" in result
-        assert len(result["standards"]) > 0
+        # MCP mock returns 3 results
+        assert len(result["standards"]) == 3
 
     @pytest.mark.asyncio
-    async def test_standard_retriever_handles_empty_raw_data(self):
+    async def test_standard_retriever_handles_empty_raw_data(self, mock_mcp_rag_client):
         """
         Test StandardRetrieverAgent handles empty raw_data.
 
@@ -550,7 +661,7 @@ class TestStandardRetrieverAgent:
         result = await agent.run(state)
 
         assert "standards" in result
-        assert len(result["standards"]) >= 3
+        assert len(result["standards"]) == 3  # From MCP mock
 
 
 # ============================================================================
@@ -1398,10 +1509,12 @@ class TestExcelParserAgentComprehensive:
 
 
 class TestStandardRetrieverAgentComprehensive:
-    """Additional comprehensive tests for StandardRetrieverAgent."""
+    """Additional comprehensive tests for StandardRetrieverAgent with MCP integration."""
 
     @pytest.mark.asyncio
-    async def test_standard_retriever_returns_list_of_strings(self, mock_task_state_with_raw_data):
+    async def test_standard_retriever_returns_list_of_strings(
+        self, mock_task_state_with_raw_data, mock_mcp_rag_client
+    ):
         """Test that standards list contains strings."""
         agent = StandardRetrieverAgent()
 
@@ -1414,7 +1527,9 @@ class TestStandardRetrieverAgentComprehensive:
             assert len(standard) > 0
 
     @pytest.mark.asyncio
-    async def test_standard_retriever_includes_k_standards(self, mock_task_state_with_raw_data):
+    async def test_standard_retriever_includes_k_standards(
+        self, mock_task_state_with_raw_data, mock_mcp_rag_client
+    ):
         """Test that retrieved standards reference K-IFRS or K-GAAS."""
         agent = StandardRetrieverAgent()
 
@@ -1424,8 +1539,8 @@ class TestStandardRetrieverAgentComprehensive:
         assert "K-IFRS" in standards_text or "K-GAAS" in standards_text
 
     @pytest.mark.asyncio
-    async def test_standard_retriever_category_specific_results(self):
-        """Test that different categories get different standards."""
+    async def test_standard_retriever_category_specific_queries(self, mock_mcp_rag_client):
+        """Test that different categories generate different MCP queries."""
         agent = StandardRetrieverAgent()
 
         # Sales category
@@ -1433,19 +1548,23 @@ class TestStandardRetrieverAgentComprehensive:
             "category": "Sales",
             "raw_data": {}
         }
-        result_sales = await agent.run(state_sales)
-        standards_sales = result_sales["standards"]
+        await agent.run(state_sales)
+        sales_call = mock_mcp_rag_client.search_standards.call_args_list[0]
+
+        # Reset mock
+        mock_mcp_rag_client.search_standards.reset_mock()
 
         # Inventory category
         state_inventory = {
             "category": "Inventory",
             "raw_data": {}
         }
-        result_inventory = await agent.run(state_inventory)
-        standards_inventory = result_inventory["standards"]
+        await agent.run(state_inventory)
+        inventory_call = mock_mcp_rag_client.search_standards.call_args_list[0]
 
-        # Standards should differ for different categories
-        assert standards_sales != standards_inventory
+        # Queries should differ for different categories
+        assert "Sales" in sales_call.kwargs["query_text"]
+        assert "Inventory" in inventory_call.kwargs["query_text"]
 
 
 class TestVouchingAssistantAgentComprehensive:
@@ -1984,10 +2103,10 @@ class TestExcelParserAgentRobustness:
 
 
 class TestStandardRetrieverAgentRobustness:
-    """Test StandardRetrieverAgent robustness and error handling."""
+    """Test StandardRetrieverAgent robustness and error handling with MCP integration."""
 
     @pytest.mark.asyncio
-    async def test_standard_retriever_with_empty_state(self):
+    async def test_standard_retriever_with_empty_state(self, mock_mcp_rag_client):
         """
         Test StandardRetrieverAgent with completely empty state.
 
@@ -2001,12 +2120,13 @@ class TestStandardRetrieverAgentRobustness:
         # Should still return standards with defaults
         assert "standards" in result
         assert "messages" in result
-        assert len(result["standards"]) > 0
+        assert len(result["standards"]) == 3  # From MCP mock
 
     @pytest.mark.asyncio
     async def test_standard_retriever_standards_are_non_empty_strings(
         self,
-        mock_task_state_with_raw_data
+        mock_task_state_with_raw_data,
+        mock_mcp_rag_client
     ):
         """
         Test that all returned standards are non-empty strings.

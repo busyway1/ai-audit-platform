@@ -379,6 +379,7 @@ async def test_manager_subgraph():
         "messages": [],
         "raw_data": {},
         "standards": [],
+        "search_metadata": {},  # MCP search metadata for debugging
         "vouching_logs": [],
         "workpaper_draft": "",
         "next_staff": "",  # Empty string instead of None for TypedDict compatibility

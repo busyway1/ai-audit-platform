@@ -135,6 +135,11 @@ class StandardRetrieverAgent:
     - Retrieve relevant audit standards from vector DB (pgvector + HNSW)
     - Apply metadata filters (account category, audit stage)
     - Fill TaskState.standards field with relevant regulations
+
+    Implementation:
+    - Uses MCPRagClient to communicate with MCP RAG server
+    - Hybrid search (BM25 + Vector) with RRF fusion for best results
+    - Wide Recall strategy: Top-30 for recall, Top-10 for LLM context
     """
 
     def __init__(self, model_name: str = "gpt-5.2"):
@@ -150,14 +155,12 @@ class StandardRetrieverAgent:
 
     async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Retrieve relevant audit standards from vector DB.
+        Retrieve relevant audit standards from MCP RAG server.
 
-        For POC: Mock RAG retrieval with pre-defined standards.
-        TODO: Real implementation:
-        1. Query embedding with OpenAI text-embedding-3-large
-        2. pgvector similarity search (cosine similarity)
-        3. Metadata filtering (account_category, audit_stage)
-        4. Parent-Child chunk expansion
+        Uses hybrid search (BM25 + Vector) with RRF fusion:
+        1. Query MCP RAG server with category-specific query
+        2. Retrieve Top-30 candidates for Wide Recall
+        3. Format Top-10 for LLM context
 
         Args:
             state: Current TaskState containing category, raw_data, etc.
@@ -165,8 +168,11 @@ class StandardRetrieverAgent:
         Returns:
             Updated state with:
             - standards: List of relevant K-IFRS/K-GAAS standards
+            - search_metadata: Metadata from MCP search for debugging/monitoring
             - messages: Log message about standards retrieved
         """
+        from ..services.mcp_client import MCPRagClient, MCPRagClientError
+
         task_id = state.get("task_id", "UNKNOWN")
         category = state.get("category", "Sales")
         raw_data = state.get("raw_data", {})
@@ -175,47 +181,84 @@ class StandardRetrieverAgent:
             f"[{self.agent_name}] Retrieving standards for task {task_id} ({category})"
         )
 
-        # POC: Mock RAG retrieval based on category
-        # In production, this would:
-        # 1. Use Standard_MCP server
-        # 2. Query pgvector with embeddings
-        # 3. Apply metadata filters
-        # 4. Return Parent chunks with full context
+        standards: list[str] = []
+        search_metadata: Dict[str, Any] = {}
 
-        category_to_standards = {
-            "Sales": [
-                "K-IFRS 1115: 고객과의 계약에서 생기는 수익 (Revenue from Contracts with Customers) - 문단 31-35 (수익 인식 시점)",
-                "K-GAAS 500: 감사증거 (Audit Evidence) - 문단 A1-A10 (충분하고 적합한 증거)",
-                "K-GAAS 330: 평가된 위험에 대한 감사인의 대응 (Auditor's Responses to Assessed Risks) - 실증절차 설계"
-            ],
-            "Inventory": [
-                "K-IFRS 1002: 재고자산 (Inventories) - 문단 9 (원가 측정)",
-                "K-GAAS 501: 감사증거—특정 항목에 대한 고려사항 (Audit Evidence—Specific Considerations for Selected Items)"
-            ],
-            "AR": [
-                "K-IFRS 1109: 금융상품 (Financial Instruments) - 문단 5.5.1 (손상 모형)",
-                "K-GAAS 540: 회계추정치와 관련 공시에 대한 감사 (Auditing Accounting Estimates and Related Disclosures)"
-            ]
-        }
+        try:
+            mcp_client = MCPRagClient()
 
-        mock_standards = category_to_standards.get(
-            category,
-            [
-                "K-GAAS 200: 재무제표감사를 수행하는 독립된 감사인의 전반적인 목적 (Overall Objectives of the Independent Auditor)",
-                "K-GAAS 315: 중요한 왜곡표시위험의 식별과 평가 (Identifying and Assessing the Risks of Material Misstatement)"
-            ]
-        )
+            # 1. Hybrid search (Top-30 for Wide Recall)
+            search_result = await mcp_client.search_standards(
+                query_text=f"{category} 회계처리 기준",
+                top_k=30,
+                mode="hybrid"
+            )
 
-        logger.info(
-            f"[{self.agent_name}] Retrieved {len(mock_standards)} relevant standards for {category}"
-        )
+            if search_result.get("status") == "success":
+                results = search_result["data"]["results"]
+                search_metadata = search_result.get("data", {}).get("metadata", {})
+
+                # Format Top-10 for LLM context
+                for r in results[:10]:
+                    standard_id = r.get("standard_id", "Unknown")
+                    paragraph_no = r.get("paragraph_no", "")
+                    content = r.get("content", "")
+                    title = r.get("title", "")
+
+                    # Truncate content for context window efficiency
+                    content_preview = content[:200] + "..." if len(content) > 200 else content
+
+                    formatted = f"{standard_id} {paragraph_no}"
+                    if title:
+                        formatted += f" ({title})"
+                    formatted += f": {content_preview}"
+
+                    standards.append(formatted)
+
+                logger.info(
+                    f"[{self.agent_name}] MCP search successful: "
+                    f"{len(results)} candidates, {len(standards)} formatted for context. "
+                    f"Duration: {search_metadata.get('duration_ms', 'N/A')}ms"
+                )
+            else:
+                error_msg = search_result.get("message", "Unknown error")
+                logger.warning(
+                    f"[{self.agent_name}] MCP search returned non-success status: {error_msg}"
+                )
+                search_metadata = {"error": error_msg}
+
+        except MCPRagClientError as e:
+            logger.error(f"[{self.agent_name}] MCP RAG client error: {e}")
+            search_metadata = {"error": str(e), "error_type": "MCPRagClientError"}
+
+        except Exception as e:
+            logger.error(f"[{self.agent_name}] Unexpected error during MCP search: {e}")
+            search_metadata = {"error": str(e), "error_type": type(e).__name__}
+
+        # Log final result
+        if standards:
+            logger.info(
+                f"[{self.agent_name}] Retrieved {len(standards)} relevant standards for {category}"
+            )
+        else:
+            logger.warning(
+                f"[{self.agent_name}] No standards retrieved for {category}. "
+                f"MCP search may have failed or returned empty results."
+            )
 
         return {
-            "standards": mock_standards,
+            "standards": standards,
+            "search_metadata": search_metadata,
             "messages": [
                 HumanMessage(
-                    content=f"[{self.agent_name}] Retrieved {len(mock_standards)} relevant audit standards "
-                            f"for {category} audit:\n" + "\n".join(f"  - {s}" for s in mock_standards),
+                    content=(
+                        f"[{self.agent_name}] Retrieved {len(standards)} relevant audit standards "
+                        f"for {category} audit"
+                        + (f" (search duration: {search_metadata.get('duration_ms', 'N/A')}ms)"
+                           if search_metadata.get('duration_ms') else "")
+                        + (":\n" + "\n".join(f"  - {s}" for s in standards) if standards
+                           else ". No standards found - MCP search may be unavailable.")
+                    ),
                     name=self.agent_name
                 )
             ]
@@ -564,6 +607,7 @@ if __name__ == "__main__":
             "messages": [],
             "raw_data": {},
             "standards": [],
+            "search_metadata": {},  # MCP search metadata for debugging
             "vouching_logs": [],
             "workpaper_draft": "",
             "next_staff": "ExcelParser",

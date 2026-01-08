@@ -130,6 +130,7 @@ def mock_task_state() -> Dict[str, Any]:
         "messages": [],
         "raw_data": {},
         "standards": [],
+        "search_metadata": {},  # MCP search metadata for debugging
         "vouching_logs": [],
         "workpaper_draft": "",
         "next_staff": "",

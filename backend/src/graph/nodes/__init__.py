@@ -9,16 +9,22 @@ Available Nodes:
 - wait_for_approval_node: HITL checkpoint for human approval
 - manager_aggregation_node: Aggregates results from all Manager subgraphs
 - continue_to_manager_subgraphs: Send API dispatcher for parallel execution
+- rerank_node: LLM-based reranking of search candidates (Top-30 to Top-5)
+- multihop_node: Multi-hop retrieval for K-IFRS RAG context expansion
 
 Reference: AUDIT_PLATFORM_SPECIFICATION.md Section 4.4
 """
 
 from .partner import partner_planning_node, wait_for_approval_node
 from .manager import manager_aggregation_node, continue_to_manager_subgraphs
+from .reranker_node import rerank_node
+from .multihop_node import multihop_node
 
 __all__ = [
     "partner_planning_node",
     "wait_for_approval_node",
     "manager_aggregation_node",
     "continue_to_manager_subgraphs",
+    "rerank_node",
+    "multihop_node",
 ]

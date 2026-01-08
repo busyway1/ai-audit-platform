@@ -66,6 +66,7 @@ class TaskState(TypedDict):
     # Each Staff agent fills its designated field
     raw_data: Dict[str, Any]         # Excel_Parser output
     standards: List[str]             # Standard_Retriever output
+    search_metadata: Dict[str, Any]  # Standard_Retriever MCP search metadata
     vouching_logs: List[Dict]        # Vouching_Assistant output
     workpaper_draft: str             # WorkPaper_Generator output
 
