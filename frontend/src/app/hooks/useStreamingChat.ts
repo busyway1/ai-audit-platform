@@ -1,29 +1,82 @@
 /**
  * SSE Streaming Chat Hook
  *
- * This hook provides a streaming chat interface that simulates real-time AI responses
- * and artifact generation. It uses Server-Sent Events (SSE) for streaming updates
- * and integrates with the chat and artifact stores.
+ * This hook provides a streaming chat interface with real SSE connection
+ * for real-time AI responses and artifact generation.
  *
  * Features:
- * - Detects artifact type from user query keywords
- * - Streams AI responses with mock data
- * - Creates and updates artifacts in real-time
+ * - Real SSE connection to backend streaming endpoint
+ * - Automatic reconnection with exponential backoff (max 30s)
+ * - Handles message, heartbeat, artifact_update, artifact_complete, and error events
+ * - Fallback mock mode for demo/testing
  * - Integrates with useChatStore and useArtifactStore
  *
  * @module hooks/useStreamingChat
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { nanoid } from 'nanoid'
 import { useChatStore } from '../stores/useChatStore'
 import { useArtifactStore } from '../stores/useArtifactStore'
-import type { ChatMessage, Artifact } from '../types/audit'
+import type { ChatMessage, Artifact, ArtifactType } from '../types/audit'
 
 /**
- * Mock data generators for different artifact types
+ * SSE Event types from backend
  */
-const mockDataGenerators = {
+interface SSEEventData {
+  type: 'message' | 'artifact_start' | 'artifact_update' | 'artifact_complete' | 'error' | 'heartbeat' | 'done'
+  content?: string
+  artifactId?: string
+  artifactType?: ArtifactType
+  artifactTitle?: string
+  artifactData?: Record<string, unknown>
+  error?: string
+  timestamp?: string
+}
+
+/**
+ * Connection status types
+ */
+type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
+
+/**
+ * Hook options for configuring SSE behavior
+ */
+interface UseStreamingChatOptions {
+  /** API base URL for SSE endpoint */
+  baseUrl?: string
+  /** Enable mock mode for demo/testing (default: false) */
+  mockMode?: boolean
+  /** Maximum reconnection attempts before giving up (default: 10) */
+  maxReconnectAttempts?: number
+  /** Initial delay before first reconnect in ms (default: 1000) */
+  initialReconnectDelay?: number
+  /** Maximum delay between reconnects in ms (default: 30000 = 30s) */
+  maxReconnectDelay?: number
+}
+
+/**
+ * Hook return type
+ */
+interface UseStreamingChatReturn {
+  /** Send a message and start streaming response */
+  sendMessage: (content: string, taskId?: string) => Promise<void>
+  /** Whether the hook is currently streaming a response */
+  isStreaming: boolean
+  /** Current SSE connection status */
+  connectionStatus: ConnectionStatus
+  /** Manually disconnect from SSE stream */
+  disconnect: () => void
+  /** Current reconnection attempt count */
+  reconnectAttempts: number
+  /** Any connection error message */
+  connectionError: string | null
+}
+
+/**
+ * Mock data generators for different artifact types (used in mock mode)
+ */
+const mockDataGenerators: Record<string, () => Record<string, unknown>> = {
   dashboard: () => ({
     agents: [
       {
@@ -214,7 +267,7 @@ const mockDataGenerators = {
 /**
  * Detect artifact type from user query
  */
-function detectArtifactType(query: string): keyof typeof mockDataGenerators {
+function detectArtifactType(query: string): ArtifactType {
   const lowerQuery = query.toLowerCase()
 
   if (lowerQuery.includes('dashboard')) return 'dashboard'
@@ -230,65 +283,324 @@ function detectArtifactType(query: string): keyof typeof mockDataGenerators {
 /**
  * Get artifact title based on type
  */
-function getArtifactTitle(type: keyof typeof mockDataGenerators): string {
-  const titles: Record<keyof typeof mockDataGenerators, string> = {
+function getArtifactTitle(type: ArtifactType): string {
+  const titles: Record<ArtifactType, string> = {
     dashboard: 'Dashboard Overview',
     'financial-statements': 'Financial Statements Overview',
     'issue-details': 'Issue Details',
     'task-status': 'Task Status Details',
     'engagement-plan': 'Engagement Plan',
+    'working-paper': 'Working Paper',
+    document: 'Document',
   }
-  return titles[type]
+  return titles[type] || 'Artifact'
 }
 
 /**
  * Get AI response message based on artifact type
  */
-function getAIResponse(type: keyof typeof mockDataGenerators): string {
-  const responses: Record<keyof typeof mockDataGenerators, string> = {
-    dashboard: "I've created a dashboard overview for you. Check the artifact panel →",
-    'financial-statements': "I've prepared the financial statements analysis. Check the artifact panel →",
-    'issue-details': "I've documented the issue details. Check the artifact panel →",
-    'task-status': "I've retrieved the task status and agent messages. Check the artifact panel →",
-    'engagement-plan': "I've created an engagement plan for you. Check the artifact panel →",
+function getAIResponse(type: ArtifactType): string {
+  const responses: Record<ArtifactType, string> = {
+    dashboard: "I've created a dashboard overview for you. Check the artifact panel.",
+    'financial-statements': "I've prepared the financial statements analysis. Check the artifact panel.",
+    'issue-details': "I've documented the issue details. Check the artifact panel.",
+    'task-status': "I've retrieved the task status and agent messages. Check the artifact panel.",
+    'engagement-plan': "I've created an engagement plan for you. Check the artifact panel.",
+    'working-paper': "I've prepared the working paper. Check the artifact panel.",
+    document: "I've retrieved the document. Check the artifact panel.",
   }
-  return responses[type]
+  return responses[type] || "I've created an artifact for you. Check the artifact panel."
 }
 
 /**
- * Hook for streaming chat with SSE
+ * Calculate exponential backoff delay
+ */
+function calculateBackoffDelay(
+  attempt: number,
+  initialDelay: number,
+  maxDelay: number
+): number {
+  // Exponential backoff: initialDelay * 2^attempt with jitter
+  const exponentialDelay = initialDelay * Math.pow(2, attempt)
+  const jitter = Math.random() * 0.3 * exponentialDelay // 0-30% jitter
+  const delayWithJitter = exponentialDelay + jitter
+  return Math.min(delayWithJitter, maxDelay)
+}
+
+/**
+ * Hook for streaming chat with real SSE connection
  *
- * This hook simulates a streaming AI chat interface that:
- * 1. Adds user message to chat store
- * 2. Creates streaming AI message
- * 3. Detects artifact type from query
- * 4. Generates mock data for artifact
- * 5. Updates AI message with final content
- * 6. Marks artifact as complete
+ * This hook provides:
+ * 1. Real SSE connection to backend streaming endpoint
+ * 2. Automatic reconnection with exponential backoff
+ * 3. Message, artifact, and error event handling
+ * 4. Fallback mock mode for demo/testing
  *
- * @returns Object with sendMessage function and streaming state
+ * @param options - Configuration options
+ * @returns Object with sendMessage function, connection state, and controls
  *
  * @example
  * ```tsx
  * function ChatInterface() {
- *   const { sendMessage } = useStreamingChat()
+ *   const { sendMessage, isStreaming, connectionStatus } = useStreamingChat({
+ *     baseUrl: 'http://localhost:8000',
+ *   })
  *
- *   const handleSend = async (message: string) => {
- *     await sendMessage(message)
+ *   const handleSend = async (message: string, taskId: string) => {
+ *     await sendMessage(message, taskId)
  *   }
  *
- *   return <ChatInput onSend={handleSend} />
+ *   return (
+ *     <div>
+ *       <ChatInput onSend={handleSend} disabled={isStreaming} />
+ *       <ConnectionIndicator status={connectionStatus} />
+ *     </div>
+ *   )
  * }
  * ```
  */
-export function useStreamingChat() {
+export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStreamingChatReturn {
+  const {
+    baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+    mockMode = false,
+    maxReconnectAttempts = 10,
+    initialReconnectDelay = 1000,
+    maxReconnectDelay = 30000,
+  } = options
+
+  // State
   const [isStreaming, setIsStreaming] = useState(false)
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected')
+  const [reconnectAttempts, setReconnectAttempts] = useState(0)
+  const [connectionError, setConnectionError] = useState<string | null>(null)
+
+  // Refs for cleanup and reconnection
+  const eventSourceRef = useRef<EventSource | null>(null)
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const currentAiMessageIdRef = useRef<string | null>(null)
+  const currentArtifactIdRef = useRef<string | null>(null)
+  const isUnmountedRef = useRef(false)
+
+  // Store actions
   const addMessage = useChatStore((state) => state.addMessage)
   const updateMessage = useChatStore((state) => state.updateMessage)
   const addArtifact = useArtifactStore((state) => state.addArtifact)
   const updateArtifact = useArtifactStore((state) => state.updateArtifact)
 
-  const sendMessage = useCallback(
+  /**
+   * Clean up EventSource and reconnect timeout
+   */
+  const cleanup = useCallback(() => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close()
+      eventSourceRef.current = null
+    }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current)
+      reconnectTimeoutRef.current = null
+    }
+  }, [])
+
+  /**
+   * Disconnect from SSE stream
+   */
+  const disconnect = useCallback(() => {
+    cleanup()
+    setConnectionStatus('disconnected')
+    setIsStreaming(false)
+    setReconnectAttempts(0)
+    setConnectionError(null)
+  }, [cleanup])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    isUnmountedRef.current = false
+    return () => {
+      isUnmountedRef.current = true
+      cleanup()
+    }
+  }, [cleanup])
+
+  /**
+   * Handle SSE events
+   */
+  const handleSSEEvent = useCallback((event: MessageEvent) => {
+    if (isUnmountedRef.current) return
+
+    try {
+      const data: SSEEventData = JSON.parse(event.data)
+
+      switch (data.type) {
+        case 'heartbeat':
+          // Heartbeat event - connection is alive, no action needed
+          break
+
+        case 'message':
+          // Streaming message content
+          if (currentAiMessageIdRef.current && data.content) {
+            updateMessage(currentAiMessageIdRef.current, {
+              content: data.content,
+              streaming: true,
+            })
+          }
+          break
+
+        case 'artifact_start':
+          // New artifact being created
+          if (data.artifactId && data.artifactType && data.artifactTitle) {
+            currentArtifactIdRef.current = data.artifactId
+            const artifact: Artifact = {
+              id: data.artifactId,
+              type: data.artifactType,
+              title: data.artifactTitle,
+              data: data.artifactData || {},
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              status: 'streaming',
+            } as Artifact
+            addArtifact(artifact)
+          }
+          break
+
+        case 'artifact_update':
+          // Update artifact data
+          if (currentArtifactIdRef.current && data.artifactData) {
+            updateArtifact(currentArtifactIdRef.current, {
+              data: data.artifactData,
+              updatedAt: new Date(),
+            })
+          }
+          break
+
+        case 'artifact_complete':
+          // Artifact streaming complete
+          if (currentArtifactIdRef.current) {
+            updateArtifact(currentArtifactIdRef.current, {
+              status: 'complete',
+              updatedAt: new Date(),
+              data: data.artifactData,
+            })
+          }
+          break
+
+        case 'done':
+          // Streaming complete
+          if (currentAiMessageIdRef.current) {
+            updateMessage(currentAiMessageIdRef.current, {
+              streaming: false,
+              artifactId: currentArtifactIdRef.current || undefined,
+            })
+          }
+          setIsStreaming(false)
+          setConnectionStatus('disconnected')
+          cleanup()
+          break
+
+        case 'error':
+          // Error event
+          setConnectionError(data.error || 'Unknown error occurred')
+          if (currentAiMessageIdRef.current) {
+            updateMessage(currentAiMessageIdRef.current, {
+              content: data.error || 'An error occurred while processing your request.',
+              streaming: false,
+            })
+          }
+          if (currentArtifactIdRef.current) {
+            updateArtifact(currentArtifactIdRef.current, {
+              status: 'error',
+            })
+          }
+          setIsStreaming(false)
+          setConnectionStatus('error')
+          cleanup()
+          break
+      }
+    } catch {
+      // JSON parse error - ignore malformed events
+    }
+  }, [addArtifact, cleanup, updateArtifact, updateMessage])
+
+  /**
+   * Schedule reconnection with exponential backoff
+   */
+  const scheduleReconnect = useCallback((taskId: string, content: string) => {
+    if (isUnmountedRef.current) return
+    if (reconnectAttempts >= maxReconnectAttempts) {
+      setConnectionError(`Failed to connect after ${maxReconnectAttempts} attempts`)
+      setConnectionStatus('error')
+      setIsStreaming(false)
+      return
+    }
+
+    const delay = calculateBackoffDelay(reconnectAttempts, initialReconnectDelay, maxReconnectDelay)
+
+    reconnectTimeoutRef.current = setTimeout(() => {
+      if (!isUnmountedRef.current) {
+        setReconnectAttempts((prev) => prev + 1)
+        connectSSE(taskId, content)
+      }
+    }, delay)
+  }, [reconnectAttempts, maxReconnectAttempts, initialReconnectDelay, maxReconnectDelay])
+
+  /**
+   * Connect to SSE endpoint
+   */
+  const connectSSE = useCallback((taskId: string, content: string) => {
+    if (isUnmountedRef.current) return
+
+    cleanup()
+    setConnectionStatus('connecting')
+    setConnectionError(null)
+
+    try {
+      // Build SSE URL with query parameters
+      const url = new URL(`${baseUrl}/api/stream/${taskId}`)
+      url.searchParams.set('message', encodeURIComponent(content))
+
+      const eventSource = new EventSource(url.toString())
+      eventSourceRef.current = eventSource
+
+      eventSource.onopen = () => {
+        if (isUnmountedRef.current) {
+          eventSource.close()
+          return
+        }
+        setConnectionStatus('connected')
+        setReconnectAttempts(0)
+        setConnectionError(null)
+      }
+
+      eventSource.onmessage = handleSSEEvent
+
+      eventSource.onerror = () => {
+        if (isUnmountedRef.current) {
+          eventSource.close()
+          return
+        }
+
+        eventSource.close()
+        eventSourceRef.current = null
+
+        // Only attempt reconnect if we were streaming
+        if (isStreaming) {
+          setConnectionStatus('connecting')
+          scheduleReconnect(taskId, content)
+        } else {
+          setConnectionStatus('error')
+          setConnectionError('Connection failed')
+        }
+      }
+    } catch (error) {
+      setConnectionStatus('error')
+      setConnectionError(error instanceof Error ? error.message : 'Failed to connect')
+      setIsStreaming(false)
+    }
+  }, [baseUrl, cleanup, handleSSEEvent, isStreaming, scheduleReconnect])
+
+  /**
+   * Send a message (mock mode)
+   */
+  const sendMessageMock = useCallback(
     async (content: string) => {
       setIsStreaming(true)
 
@@ -304,6 +616,7 @@ export function useStreamingChat() {
 
         // 2. Create initial AI message (streaming)
         const aiMessageId = nanoid()
+        currentAiMessageIdRef.current = aiMessageId
         const aiMessage: ChatMessage = {
           id: aiMessageId,
           sender: 'ai',
@@ -317,10 +630,12 @@ export function useStreamingChat() {
         const artifactType = detectArtifactType(content)
 
         // 4. Generate mock data
-        const mockData = mockDataGenerators[artifactType]()
+        const mockDataGenerator = mockDataGenerators[artifactType]
+        const mockData = mockDataGenerator ? mockDataGenerator() : {}
 
         // 5. Create artifact (streaming)
         const artifactId = nanoid()
+        currentArtifactIdRef.current = artifactId
         const artifact: Artifact = {
           id: artifactId,
           type: artifactType,
@@ -348,13 +663,75 @@ export function useStreamingChat() {
         updateArtifact(artifactId, { status: 'complete' })
       } finally {
         setIsStreaming(false)
+        currentAiMessageIdRef.current = null
+        currentArtifactIdRef.current = null
       }
     },
     [addMessage, updateMessage, addArtifact, updateArtifact]
   )
 
+  /**
+   * Send a message (real SSE mode)
+   */
+  const sendMessageSSE = useCallback(
+    async (content: string, taskId?: string) => {
+      const effectiveTaskId = taskId || nanoid()
+
+      setIsStreaming(true)
+      setReconnectAttempts(0)
+      setConnectionError(null)
+
+      // 1. Add user message
+      const userMessage: ChatMessage = {
+        id: nanoid(),
+        sender: 'user',
+        content,
+        timestamp: new Date(),
+      }
+      addMessage(userMessage)
+
+      // 2. Create initial AI message (streaming)
+      const aiMessageId = nanoid()
+      currentAiMessageIdRef.current = aiMessageId
+      const aiMessage: ChatMessage = {
+        id: aiMessageId,
+        sender: 'ai',
+        content: '',
+        timestamp: new Date(),
+        streaming: true,
+      }
+      addMessage(aiMessage)
+
+      // 3. Connect to SSE endpoint
+      connectSSE(effectiveTaskId, content)
+    },
+    [addMessage, connectSSE]
+  )
+
+  /**
+   * Send a message - dispatches to mock or real SSE mode
+   */
+  const sendMessage = useCallback(
+    async (content: string, taskId?: string) => {
+      if (mockMode) {
+        return sendMessageMock(content)
+      }
+      return sendMessageSSE(content, taskId)
+    },
+    [mockMode, sendMessageMock, sendMessageSSE]
+  )
+
   return {
     sendMessage,
     isStreaming,
+    connectionStatus,
+    disconnect,
+    reconnectAttempts,
+    connectionError,
   }
 }
+
+/**
+ * Default export for convenience
+ */
+export default useStreamingChat
