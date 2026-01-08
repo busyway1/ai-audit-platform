@@ -10,6 +10,7 @@ import { WorkingPaperViewer } from './components/WorkingPaperViewer';
 import { EngagementPlan } from './components/EngagementPlan';
 import { AgentToolsSettings } from './components/settings/AgentToolsSettings';
 import { EGAList } from './components/ega/EGAList';
+import { TaskHierarchyTree } from './components/tasks/TaskHierarchyTree';
 
 // Placeholder component for User Preferences (Phase 3)
 function UserPreferences() {
@@ -48,7 +49,7 @@ const workspaceFinancialStatementsRoute = new Route({
 const workspaceTasksRoute = new Route({
   getParentRoute: () => workspaceRoute,
   path: 'tasks',
-  component: EngagementPlan,
+  component: TaskHierarchyTree,
 });
 
 const workspaceIssuesRoute = new Route({
