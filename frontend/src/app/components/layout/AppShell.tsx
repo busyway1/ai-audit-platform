@@ -1,8 +1,11 @@
+import { useState } from 'react';
 import { Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/app/components/ui/resizable';
 import { NavigationRail } from './NavigationRail';
 import { ChatInterface } from './ChatInterface';
 import { ArtifactPanel } from './ArtifactPanel';
+import { ProjectSelector } from './ProjectSelector';
+import { ProjectRegistrationModal } from './ProjectRegistrationModal';
 import { useArtifactStore } from '@/app/stores/useArtifactStore';
 
 export function AppShell() {
@@ -10,6 +13,11 @@ export function AppShell() {
   const navigate = useNavigate();
   const { artifacts } = useArtifactStore();
   const hasArtifacts = artifacts.length > 0;
+  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+
+  const handleNewProject = () => {
+    setIsProjectModalOpen(true);
+  };
 
   // Determine current view based on route
   const getCurrentView = (): 'chat' | 'workspace' | 'settings' => {
@@ -64,9 +72,26 @@ export function AppShell() {
   return (
     <div className="min-h-screen bg-gray-50 flex">
       <NavigationRail currentView={currentView} onViewChange={handleViewChange} />
-      <div className="flex-1 overflow-hidden">
-        {renderView()}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header with ProjectSelector */}
+        <header className="flex-shrink-0 h-14 bg-white border-b border-gray-200 px-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <ProjectSelector onNewProject={handleNewProject} />
+          </div>
+          <div className="flex items-center gap-2">
+            {/* Placeholder for additional header items like notifications, user menu */}
+          </div>
+        </header>
+        {/* Main content area */}
+        <div className="flex-1 overflow-hidden">
+          {renderView()}
+        </div>
       </div>
+      {/* Project Registration Modal */}
+      <ProjectRegistrationModal
+        open={isProjectModalOpen}
+        onOpenChange={setIsProjectModalOpen}
+      />
     </div>
   );
 }
