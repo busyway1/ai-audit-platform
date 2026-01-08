@@ -21,6 +21,8 @@ export type Json =
 // Enum types for status fields (aligned with actual schema)
 export type AuditProjectStatus = 'Planning' | 'Execution' | 'Review' | 'Completed'
 export type AuditTaskStatus = 'Pending' | 'In-Progress' | 'Review-Required' | 'Completed' | 'Failed'
+export type EGARiskLevel = 'Low' | 'Medium' | 'High' | 'Critical'
+export type EGAStatus = 'Not-Started' | 'In-Progress' | 'Completed'
 export type MessageType = 'instruction' | 'response' | 'tool-use' | 'human-feedback'
 export type ArtifactType = 'workpaper' | 'excel' | 'voucher' | 'memo' | 'report'
 export type StandardType = 'K-IFRS' | 'K-GAAS'
@@ -191,6 +193,50 @@ export interface Database {
           created_at?: string
         }
       }
+      audit_egas: {
+        Row: {
+          id: string
+          project_id: string
+          name: string
+          description: string | null
+          risk_level: EGARiskLevel
+          status: EGAStatus
+          progress: number
+          total_tasks: number
+          completed_tasks: number
+          metadata: Json
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          name: string
+          description?: string | null
+          risk_level?: EGARiskLevel
+          status?: EGAStatus
+          progress?: number
+          total_tasks?: number
+          completed_tasks?: number
+          metadata?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          name?: string
+          description?: string | null
+          risk_level?: EGARiskLevel
+          status?: EGAStatus
+          progress?: number
+          total_tasks?: number
+          completed_tasks?: number
+          metadata?: Json
+          created_at?: string
+          updated_at?: string
+        }
+      }
     }
   }
 }
@@ -206,6 +252,7 @@ export type AuditTask = Tables<'audit_tasks'>
 export type AgentMessage = Tables<'agent_messages'>
 export type AuditArtifact = Tables<'audit_artifacts'>
 export type AuditStandard = Tables<'audit_standards'>
+export type AuditEGA = Tables<'audit_egas'>
 
 // Insertable type aliases
 export type AuditProjectInsert = Insertable<'audit_projects'>
@@ -213,6 +260,7 @@ export type AuditTaskInsert = Insertable<'audit_tasks'>
 export type AgentMessageInsert = Insertable<'agent_messages'>
 export type AuditArtifactInsert = Insertable<'audit_artifacts'>
 export type AuditStandardInsert = Insertable<'audit_standards'>
+export type AuditEGAInsert = Insertable<'audit_egas'>
 
 // Updatable type aliases
 export type AuditProjectUpdate = Updatable<'audit_projects'>
@@ -220,3 +268,4 @@ export type AuditTaskUpdate = Updatable<'audit_tasks'>
 export type AgentMessageUpdate = Updatable<'agent_messages'>
 export type AuditArtifactUpdate = Updatable<'audit_artifacts'>
 export type AuditStandardUpdate = Updatable<'audit_standards'>
+export type AuditEGAUpdate = Updatable<'audit_egas'>
