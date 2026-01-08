@@ -26,6 +26,8 @@ export type EGAStatus = 'Not-Started' | 'In-Progress' | 'Completed'
 export type MessageType = 'instruction' | 'response' | 'tool-use' | 'human-feedback'
 export type ArtifactType = 'workpaper' | 'excel' | 'voucher' | 'memo' | 'report'
 export type StandardType = 'K-IFRS' | 'K-GAAS'
+export type HITLRequestStatus = 'pending' | 'approved' | 'rejected' | 'expired'
+export type HITLRequestType = 'approval' | 'clarification' | 'escalation' | 'review'
 
 export interface Database {
   public: {
@@ -237,6 +239,59 @@ export interface Database {
           updated_at?: string
         }
       }
+      hitl_requests: {
+        Row: {
+          id: string
+          task_id: string
+          project_id: string
+          request_type: HITLRequestType
+          urgency_score: number
+          title: string
+          context: string
+          options: Json
+          status: HITLRequestStatus
+          response: string | null
+          responded_by: string | null
+          responded_at: string | null
+          metadata: Json
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          task_id: string
+          project_id: string
+          request_type?: HITLRequestType
+          urgency_score?: number
+          title: string
+          context: string
+          options?: Json
+          status?: HITLRequestStatus
+          response?: string | null
+          responded_by?: string | null
+          responded_at?: string | null
+          metadata?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          task_id?: string
+          project_id?: string
+          request_type?: HITLRequestType
+          urgency_score?: number
+          title?: string
+          context?: string
+          options?: Json
+          status?: HITLRequestStatus
+          response?: string | null
+          responded_by?: string | null
+          responded_at?: string | null
+          metadata?: Json
+          created_at?: string
+          updated_at?: string
+        }
+      }
     }
   }
 }
@@ -253,6 +308,7 @@ export type AgentMessage = Tables<'agent_messages'>
 export type AuditArtifact = Tables<'audit_artifacts'>
 export type AuditStandard = Tables<'audit_standards'>
 export type AuditEGA = Tables<'audit_egas'>
+export type HITLRequest = Tables<'hitl_requests'>
 
 // Insertable type aliases
 export type AuditProjectInsert = Insertable<'audit_projects'>
@@ -261,6 +317,7 @@ export type AgentMessageInsert = Insertable<'agent_messages'>
 export type AuditArtifactInsert = Insertable<'audit_artifacts'>
 export type AuditStandardInsert = Insertable<'audit_standards'>
 export type AuditEGAInsert = Insertable<'audit_egas'>
+export type HITLRequestInsert = Insertable<'hitl_requests'>
 
 // Updatable type aliases
 export type AuditProjectUpdate = Updatable<'audit_projects'>
@@ -269,3 +326,4 @@ export type AgentMessageUpdate = Updatable<'agent_messages'>
 export type AuditArtifactUpdate = Updatable<'audit_artifacts'>
 export type AuditStandardUpdate = Updatable<'audit_standards'>
 export type AuditEGAUpdate = Updatable<'audit_egas'>
+export type HITLRequestUpdate = Updatable<'hitl_requests'>
