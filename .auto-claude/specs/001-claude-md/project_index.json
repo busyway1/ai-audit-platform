@@ -1,0 +1,55 @@
+{
+  "project_root": "/Users/jaewookim/Desktop/Personal Coding/AI Audit",
+  "project_type": "single",
+  "services": {
+    "frontend": {
+      "path": "frontend",
+      "tech_stack": ["typescript", "react", "next.js", "zustand", "zod", "supabase-js"],
+      "port": 3000,
+      "dev_command": "npm run dev",
+      "test_command": "npm test",
+      "build_command": "npm run build",
+      "key_directories": {
+        "stores": "src/app/stores",
+        "components": "src/app/components",
+        "hooks": "src/app/hooks",
+        "types": "src/app/types"
+      },
+      "entry_point": "src/app/page.tsx"
+    },
+    "backend": {
+      "path": "backend",
+      "tech_stack": ["python", "fastapi", "langgraph", "langchain", "anthropic", "supabase-py"],
+      "port": 8000,
+      "dev_command": "python -m uvicorn src.main:app --reload",
+      "test_command": "pytest",
+      "key_directories": {
+        "agents": "src/agents",
+        "graph": "src/graph",
+        "nodes": "src/graph/nodes",
+        "api": "src/api",
+        "services": "src/services",
+        "tools": "src/tools",
+        "db": "src/db"
+      },
+      "entry_point": "src/main.py"
+    }
+  },
+  "infrastructure": {
+    "docker": false,
+    "database": "supabase",
+    "ci_cd": false
+  },
+  "conventions": {
+    "linter_frontend": "eslint",
+    "formatter_frontend": "prettier",
+    "linter_backend": "ruff",
+    "formatter_backend": "black",
+    "testing_frontend": "vitest",
+    "testing_backend": "pytest"
+  },
+  "environment_variables": {
+    "frontend": ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY"],
+    "backend": ["SUPABASE_URL", "SUPABASE_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true
+  },
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Read(./**)",
+      "Write(./**)",
+      "Edit(./**)",
+      "Glob(./**)",
+      "Grep(./**)",
+      "Read(/Users/jaewookim/Desktop/Personal Coding/AI Audit/.worktrees/001-claude-md/**)",
+      "Write(/Users/jaewookim/Desktop/Personal Coding/AI Audit/.worktrees/001-claude-md/**)",
+      "Edit(/Users/jaewookim/Desktop/Personal Coding/AI Audit/.worktrees/001-claude-md/**)",
+      "Glob(/Users/jaewookim/Desktop/Personal Coding/AI Audit/.worktrees/001-claude-md/**)",
+      "Grep(/Users/jaewookim/Desktop/Personal Coding/AI Audit/.worktrees/001-claude-md/**)",
+      "Read(/Users/jaewookim/Desktop/Personal Coding/AI Audit/.worktrees/001-claude-md/.auto-claude/specs/001-claude-md/**)",
+      "Write(/Users/jaewookim/Desktop/Personal Coding/AI Audit/.worktrees/001-claude-md/.auto-claude/specs/001-claude-md/**)",
+      "Edit(/Users/jaewookim/Desktop/Personal Coding/AI Audit/.worktrees/001-claude-md/.auto-claude/specs/001-claude-md/**)",
+      "Bash(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "mcp__context7__resolve-library-id(*)",
+      "mcp__context7__get-library-docs(*)",
+      "mcp__graphiti-memory__search_nodes(*)",
+      "mcp__graphiti-memory__search_facts(*)",
+      "mcp__graphiti-memory__add_episode(*)",
+      "mcp__graphiti-memory__get_episodes(*)",
+      "mcp__graphiti-memory__get_entity_edge(*)"
+    ]
+  }
+}
