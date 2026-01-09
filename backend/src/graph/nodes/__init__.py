@@ -16,6 +16,7 @@ Available Nodes:
 - hitl_interrupt_node: HITL escalation handling based on urgency scores
 - process_individual_hitl_node: Individual HITL request processing
 - ega_parser_node: EGA extraction from Assigned Workflow documents
+- task_generator_node: 3-level task hierarchy generation from EGAs
 
 Reference: AUDIT_PLATFORM_SPECIFICATION.md Section 4.4
 """
@@ -52,6 +53,25 @@ from .ega_parser import (
     filter_egas_by_risk,
     sort_egas_by_priority,
 )
+from .task_generator import (
+    task_generator_node,
+    generate_task_hierarchy,
+    generate_high_level_task,
+    generate_mid_level_tasks,
+    generate_low_level_tasks,
+    get_task_summary,
+    filter_tasks_by_level,
+    filter_tasks_by_status,
+    get_task_children,
+    get_task_tree,
+    sort_tasks_by_priority,
+    sort_tasks_by_risk_score,
+    GeneratedTask,
+    TaskGenerationResult,
+    TaskLevel,
+    TaskStatus,
+    RiskLevel,
+)
 
 __all__ = [
     "partner_planning_node",
@@ -82,4 +102,21 @@ __all__ = [
     "get_ega_summary",
     "filter_egas_by_risk",
     "sort_egas_by_priority",
+    "task_generator_node",
+    "generate_task_hierarchy",
+    "generate_high_level_task",
+    "generate_mid_level_tasks",
+    "generate_low_level_tasks",
+    "get_task_summary",
+    "filter_tasks_by_level",
+    "filter_tasks_by_status",
+    "get_task_children",
+    "get_task_tree",
+    "sort_tasks_by_priority",
+    "sort_tasks_by_risk_score",
+    "GeneratedTask",
+    "TaskGenerationResult",
+    "TaskLevel",
+    "TaskStatus",
+    "RiskLevel",
 ]
