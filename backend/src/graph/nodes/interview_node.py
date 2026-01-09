@@ -308,7 +308,7 @@ Provide output in Korean where appropriate for client communication.
 
 # Initialize LLM for dynamic question generation
 interview_llm = ChatOpenAI(
-    model="gpt-5.2",
+    model="gpt-4o-mini",
     temperature=0.3  # Slightly creative for question generation
 )
 

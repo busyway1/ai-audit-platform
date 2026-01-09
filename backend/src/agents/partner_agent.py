@@ -191,7 +191,7 @@ class PartnerAgent:
             temperature: LLM temperature (default 0.2 for consistency)
         """
         self.llm = ChatOpenAI(
-            model="gpt-5.2",
+            model="gpt-4o-mini",
             temperature=temperature
         )
 

@@ -10,7 +10,7 @@ This is the main FastAPI application that orchestrates:
 Architecture:
 - Frontend (React) connects to:
   * REST API: POST /api/projects/start, POST /api/tasks/approve
-  * SSE Stream: GET /stream/{task_id}
+  * SSE Stream: GET /api/stream/{task_id}
   * Supabase Realtime: Direct Supabase connection for task status updates
 
 - Backend (FastAPI) manages:
@@ -25,10 +25,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import logging
+import os
 import sys
 from typing import AsyncGenerator
+from dotenv import load_dotenv
 
 from .db.checkpointer import get_checkpointer, setup_checkpoint_tables
+
+# Load environment variables early
+load_dotenv()
 from .api import routes, sse
 
 # Configure logging
@@ -81,20 +86,28 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # ============================================================================
         # STARTUP: Create LangGraph Workflow
         # ============================================================================
-        # NOTE: This is a placeholder - actual graph creation will be implemented
-        # by Window 2 (Backend Core). For now, we set graph to None to allow
-        # main.py to exist without blocking Window 2's work.
+        # NOTE: We need to keep the checkpointer connection alive during the entire
+        # app lifecycle. The graph holds a reference to the checkpointer, so if we
+        # close the connection, graph.ainvoke() will fail.
 
         logger.info("Initializing LangGraph workflow...")
+
+        checkpointer = None
+        graph = None
 
         try:
             # Try to import graph builder (may not exist yet if Window 2 incomplete)
             from .graph.graph import create_parent_graph
+            from langgraph.checkpoint.memory import MemorySaver
 
-            # Use get_checkpointer context manager to create graph
-            with get_checkpointer() as checkpointer:
-                graph = create_parent_graph(checkpointer)
-                logger.info("✅ LangGraph workflow initialized successfully")
+            # For async graph invocation (ainvoke), we need an async-compatible checkpointer
+            # MemorySaver works for both sync and async, and is simpler for ad-hoc chat
+            # PostgresSaver requires psycopg async setup which is more complex
+            logger.info("Using MemorySaver checkpointer (in-memory, no persistence)")
+            checkpointer = MemorySaver()
+
+            graph = create_parent_graph(checkpointer)
+            logger.info("✅ LangGraph workflow initialized successfully")
 
         except ImportError as e:
             logger.warning(
@@ -109,17 +122,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             graph = None
 
         # Store graph in app.state for access in route handlers
-        # Note: Routes that need checkpointer should use get_checkpointer() context manager
         app.state.graph = graph
 
         # ============================================================================
         # STARTUP: Log Environment Info
         # ============================================================================
-        import os
-        from dotenv import load_dotenv
-
-        load_dotenv()
-
         logger.info("Environment Configuration:")
         logger.info(f"  - SUPABASE_URL: {os.getenv('SUPABASE_URL', 'NOT SET')}")
         logger.info(f"  - SUPABASE_SERVICE_KEY: {'***' if os.getenv('SUPABASE_SERVICE_KEY') else 'NOT SET'}")
@@ -148,7 +155,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # Cleanup graph resources if needed
         if hasattr(app.state, 'graph') and app.state.graph:
             logger.info("Cleaning up LangGraph workflow...")
-            # Add any necessary cleanup here (e.g., close connections)
+            # MemorySaver doesn't need explicit cleanup
 
         logger.info("✅ Shutdown complete")
 
@@ -196,8 +203,8 @@ app.add_middleware(
 # REST API routes: /api/projects/start, /api/tasks/approve, /api/health
 app.include_router(routes.router)
 
-# SSE streaming routes: /stream/{task_id}
-app.include_router(sse.router, prefix="/stream", tags=["sse"])
+# SSE streaming routes: /api/stream/{task_id}
+app.include_router(sse.router, prefix="/api/stream", tags=["sse"])
 
 
 # ============================================================================

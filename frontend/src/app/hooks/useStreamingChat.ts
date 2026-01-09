@@ -361,7 +361,7 @@ function calculateBackoffDelay(
  */
 export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStreamingChatReturn {
   const {
-    baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+    baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080',
     mockMode = false,
     maxReconnectAttempts = 10,
     initialReconnectDelay = 1000,

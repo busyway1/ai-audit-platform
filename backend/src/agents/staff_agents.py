@@ -64,7 +64,7 @@ class ExcelParserAgent:
     - Falls back to mock data if MCP server is unavailable
     """
 
-    def __init__(self, model_name: str = "gpt-5.2"):
+    def __init__(self, model_name: str = "gpt-4o-mini"):
         """
         Initialize Excel Parser agent.
 
@@ -309,7 +309,7 @@ class StandardRetrieverAgent:
     - Wide Recall strategy: Top-30 for recall, Top-10 for LLM context
     """
 
-    def __init__(self, model_name: str = "gpt-5.2"):
+    def __init__(self, model_name: str = "gpt-4o-mini"):
         """
         Initialize Standard Retriever agent.
 
@@ -461,7 +461,7 @@ class VouchingAssistantAgent:
     - Fill TaskState.vouching_logs field with verification results
     """
 
-    def __init__(self, model_name: str = "gpt-5.2"):
+    def __init__(self, model_name: str = "gpt-4o-mini"):
         """
         Initialize Vouching Assistant agent.
 
@@ -657,7 +657,7 @@ class WorkPaperGeneratorAgent:
     - Falls back to LLM-based generation if MCP unavailable
     """
 
-    def __init__(self, model_name: str = "gpt-5.2"):
+    def __init__(self, model_name: str = "gpt-4o-mini"):
         """
         Initialize WorkPaper Generator agent.
 

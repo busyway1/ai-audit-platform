@@ -5,7 +5,7 @@
  * Uses Vite environment variables for different deployment environments.
  *
  * Environment Variables:
- * - VITE_API_URL: Backend API base URL (default: http://localhost:8000)
+ * - VITE_API_URL: Backend API base URL (default: http://localhost:8080)
  * - VITE_API_TIMEOUT: Request timeout in milliseconds (default: 30000)
  *
  * Usage:
@@ -25,7 +25,7 @@
  * Populated from environment variables with fallback defaults
  */
 export const API_CONFIG = {
-  baseUrl: import.meta.env.VITE_API_URL || 'http://localhost:8000',
+  baseUrl: import.meta.env.VITE_API_URL || 'http://localhost:8080',
   timeout: Number(import.meta.env.VITE_API_TIMEOUT) || 30000,
 } as const;
 
@@ -37,11 +37,11 @@ export const API_CONFIG = {
  *
  * @example
  * getApiUrl('/api/health')
- * // Returns: 'http://localhost:8000/api/health'
+ * // Returns: 'http://localhost:8080/api/health'
  *
  * @example
  * getApiUrl('api/projects/start') // missing leading slash
- * // Returns: 'http://localhost:8000/api/projects/start'
+ * // Returns: 'http://localhost:8080/api/projects/start'
  */
 export const getApiUrl = (path: string): string => {
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
