@@ -56,6 +56,7 @@ from .ega_parser import (
 )
 from .task_generator import (
     task_generator_node,
+    TaskGeneratorNode,
     generate_task_hierarchy,
     generate_high_level_task,
     generate_mid_level_tasks,
@@ -117,6 +118,7 @@ __all__ = [
     "filter_egas_by_risk",
     "sort_egas_by_priority",
     "task_generator_node",
+    "TaskGeneratorNode",
     "generate_task_hierarchy",
     "generate_high_level_task",
     "generate_mid_level_tasks",
