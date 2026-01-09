@@ -387,7 +387,7 @@ class TestCalculateAiConfidenceFactor:
         factor = _calculate_ai_confidence_factor(task)
 
         # (1 - 0.8) * 100 = 20
-        assert factor == 20.0
+        assert factor == pytest.approx(20.0)
 
     def test_ai_confidence_factor_low_confidence(self):
         """Test low confidence results in high factor."""
@@ -405,7 +405,7 @@ class TestCalculateAiConfidenceFactor:
         factor = _calculate_ai_confidence_factor(task)
 
         # (1 - 0.95) * 100 = 5
-        assert factor == 5.0
+        assert factor == pytest.approx(5.0)
 
     def test_ai_confidence_factor_default(self):
         """Test default AI confidence when not provided."""
@@ -414,7 +414,7 @@ class TestCalculateAiConfidenceFactor:
         factor = _calculate_ai_confidence_factor(task)
 
         # Default 0.8 confidence -> (1 - 0.8) * 100 = 20
-        assert factor == 20.0
+        assert factor == pytest.approx(20.0)
 
     def test_ai_confidence_factor_percentage_format(self):
         """Test AI confidence provided as percentage."""
@@ -423,7 +423,7 @@ class TestCalculateAiConfidenceFactor:
         factor = _calculate_ai_confidence_factor(task)
 
         # 80 -> 0.80 -> (1 - 0.8) * 100 = 20
-        assert factor == 20.0
+        assert factor == pytest.approx(20.0)
 
     def test_ai_confidence_factor_alternative_fields(self):
         """Test alternative confidence field names."""
@@ -431,7 +431,7 @@ class TestCalculateAiConfidenceFactor:
 
         factor = _calculate_ai_confidence_factor(task)
 
-        assert factor == 30.0
+        assert factor == pytest.approx(30.0)
 
 
 class TestGetUrgencyLevel:

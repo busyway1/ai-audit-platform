@@ -1278,9 +1278,37 @@ class TestStaffAgentsWorkflow:
         raw_data = state["raw_data"]
         assert raw_data["transaction_count"] > 0
 
-        # Step 2: Standard Retriever
+        # Step 2: Standard Retriever (with mock MCP client)
         standard_agent = StandardRetrieverAgent()
-        result2 = await standard_agent.run(state)
+
+        # Mock MCP RAG client response
+        mock_mcp_response = {
+            "status": "success",
+            "data": {
+                "results": [
+                    {
+                        "standard_id": "K-IFRS 1115",
+                        "paragraph_no": "31",
+                        "title": "Revenue from Contracts",
+                        "content": "An entity shall recognise revenue when it satisfies a performance obligation."
+                    },
+                    {
+                        "standard_id": "K-GAAS 315",
+                        "paragraph_no": "12",
+                        "title": "Risk Assessment",
+                        "content": "The auditor shall identify and assess the risks of material misstatement."
+                    }
+                ],
+                "metadata": {"duration_ms": 50}
+            }
+        }
+
+        # Create a mock MCPRagClient class
+        mock_mcp_client_instance = AsyncMock()
+        mock_mcp_client_instance.search_standards = AsyncMock(return_value=mock_mcp_response)
+
+        with patch('src.services.mcp_client.MCPRagClient', return_value=mock_mcp_client_instance):
+            result2 = await standard_agent.run(state)
         state.update(result2)
 
         assert "standards" in state
@@ -1884,7 +1912,8 @@ class TestVouchingAssistantEdgeCases:
 
         # Should handle two transactions (tests len(sample_transactions) > 1 branch)
         assert "vouching_logs" in result
-        assert len(result["vouching_logs"]) == 3  # Mock creates 3 logs
+        # Implementation generates one log per transaction in sample_transactions
+        assert len(result["vouching_logs"]) == 2  # 2 transactions provided
 
     @pytest.mark.asyncio
     async def test_vouching_logs_risk_level_assignment(

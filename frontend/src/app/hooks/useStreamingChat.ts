@@ -380,6 +380,8 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
   const currentAiMessageIdRef = useRef<string | null>(null)
   const currentArtifactIdRef = useRef<string | null>(null)
   const isUnmountedRef = useRef(false)
+  const isStreamingRef = useRef(false)
+  const reconnectAttemptsRef = useRef(0)
 
   // Store actions
   const addMessage = useChatStore((state) => state.addMessage)
@@ -402,15 +404,31 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
   }, [])
 
   /**
+   * Helper to update isStreaming state and ref together
+   */
+  const updateIsStreaming = useCallback((value: boolean) => {
+    isStreamingRef.current = value
+    setIsStreaming(value)
+  }, [])
+
+  /**
+   * Helper to update reconnectAttempts state and ref together
+   */
+  const updateReconnectAttempts = useCallback((value: number) => {
+    reconnectAttemptsRef.current = value
+    setReconnectAttempts(value)
+  }, [])
+
+  /**
    * Disconnect from SSE stream
    */
   const disconnect = useCallback(() => {
     cleanup()
     setConnectionStatus('disconnected')
-    setIsStreaming(false)
-    setReconnectAttempts(0)
+    updateIsStreaming(false)
+    updateReconnectAttempts(0)
     setConnectionError(null)
-  }, [cleanup])
+  }, [cleanup, updateIsStreaming, updateReconnectAttempts])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -491,6 +509,7 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
               artifactId: currentArtifactIdRef.current || undefined,
             })
           }
+          isStreamingRef.current = false
           setIsStreaming(false)
           setConnectionStatus('disconnected')
           cleanup()
@@ -510,6 +529,7 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
               status: 'error',
             })
           }
+          isStreamingRef.current = false
           setIsStreaming(false)
           setConnectionStatus('error')
           cleanup()
@@ -525,22 +545,29 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
    */
   const scheduleReconnect = useCallback((taskId: string, content: string) => {
     if (isUnmountedRef.current) return
-    if (reconnectAttempts >= maxReconnectAttempts) {
+
+    // Use ref for current attempt count to avoid stale closure
+    const currentAttempts = reconnectAttemptsRef.current
+    if (currentAttempts >= maxReconnectAttempts) {
       setConnectionError(`Failed to connect after ${maxReconnectAttempts} attempts`)
       setConnectionStatus('error')
+      isStreamingRef.current = false
       setIsStreaming(false)
       return
     }
 
-    const delay = calculateBackoffDelay(reconnectAttempts, initialReconnectDelay, maxReconnectDelay)
+    const delay = calculateBackoffDelay(currentAttempts, initialReconnectDelay, maxReconnectDelay)
 
     reconnectTimeoutRef.current = setTimeout(() => {
       if (!isUnmountedRef.current) {
-        setReconnectAttempts((prev) => prev + 1)
+        // Increment attempts before connecting
+        const newAttempts = reconnectAttemptsRef.current + 1
+        reconnectAttemptsRef.current = newAttempts
+        setReconnectAttempts(newAttempts)
         connectSSE(taskId, content)
       }
     }, delay)
-  }, [reconnectAttempts, maxReconnectAttempts, initialReconnectDelay, maxReconnectDelay])
+  }, [maxReconnectAttempts, initialReconnectDelay, maxReconnectDelay])
 
   /**
    * Connect to SSE endpoint
@@ -566,6 +593,8 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
           return
         }
         setConnectionStatus('connected')
+        // Reset reconnect attempts on successful connection
+        reconnectAttemptsRef.current = 0
         setReconnectAttempts(0)
         setConnectionError(null)
       }
@@ -581,8 +610,8 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
         eventSource.close()
         eventSourceRef.current = null
 
-        // Only attempt reconnect if we were streaming
-        if (isStreaming) {
+        // Only attempt reconnect if we were streaming (use ref to avoid stale closure)
+        if (isStreamingRef.current) {
           setConnectionStatus('connecting')
           scheduleReconnect(taskId, content)
         } else {
@@ -593,15 +622,17 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
     } catch (error) {
       setConnectionStatus('error')
       setConnectionError(error instanceof Error ? error.message : 'Failed to connect')
+      isStreamingRef.current = false
       setIsStreaming(false)
     }
-  }, [baseUrl, cleanup, handleSSEEvent, isStreaming, scheduleReconnect])
+  }, [baseUrl, cleanup, handleSSEEvent, scheduleReconnect])
 
   /**
    * Send a message (mock mode)
    */
   const sendMessageMock = useCallback(
     async (content: string) => {
+      isStreamingRef.current = true
       setIsStreaming(true)
 
       try {
@@ -662,6 +693,7 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
         await new Promise((resolve) => setTimeout(resolve, 500))
         updateArtifact(artifactId, { status: 'complete' })
       } finally {
+        isStreamingRef.current = false
         setIsStreaming(false)
         currentAiMessageIdRef.current = null
         currentArtifactIdRef.current = null
@@ -677,7 +709,9 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
     async (content: string, taskId?: string) => {
       const effectiveTaskId = taskId || nanoid()
 
+      isStreamingRef.current = true
       setIsStreaming(true)
+      reconnectAttemptsRef.current = 0
       setReconnectAttempts(0)
       setConnectionError(null)
 

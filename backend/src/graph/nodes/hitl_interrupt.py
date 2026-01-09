@@ -286,7 +286,7 @@ def _identify_hitl_tasks(
     """
     return [
         task for task in tasks
-        if task.get("urgency_score", 0) >= threshold
+        if (task.get("urgency_score") or 0) >= threshold
         and task.get("status") not in ["completed", "skipped", "hitl_approved"]
     ]
 

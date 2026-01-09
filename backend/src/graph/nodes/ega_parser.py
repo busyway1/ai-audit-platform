@@ -683,6 +683,7 @@ async def ega_parser_node(state: AuditState) -> Dict[str, Any]:
         all_warnings.append("No workflow documents uploaded - generated EGAs from audit plan")
     else:
         # Parse each workflow document
+        docs_with_valid_path = 0
         async with MCPExcelClient() as client:
             for doc in workflow_docs:
                 file_path = doc.get("file_path")
@@ -692,6 +693,7 @@ async def ega_parser_node(state: AuditState) -> Dict[str, Any]:
                     all_warnings.append(f"Document missing path/URL: {doc.get('name', 'unknown')}")
                     continue
 
+                docs_with_valid_path += 1
                 result = await parse_assigned_workflow(
                     file_path=file_path,
                     file_url=file_url,
@@ -704,6 +706,17 @@ async def ega_parser_node(state: AuditState) -> Dict[str, Any]:
                     all_warnings.extend(result.warnings)
                 else:
                     all_errors.extend(result.errors)
+
+        # If no documents had valid paths, generate fallback EGAs
+        if docs_with_valid_path == 0 and not all_egas:
+            logger.info("[EGA Parser] All documents missing path/URL, using fallback EGAs")
+            audit_plan = state.get("audit_plan", {})
+            if audit_plan:
+                egas = _generate_egas_from_plan(audit_plan, project_id)
+            else:
+                egas = _get_fallback_egas(project_id)
+            all_egas = [ega.to_dict() for ega in egas]
+            all_warnings.append("All documents missing path/URL - generated fallback EGAs")
 
     # Build summary message
     message_parts = [f"[EGA Parser] Extracted {len(all_egas)} EGAs"]

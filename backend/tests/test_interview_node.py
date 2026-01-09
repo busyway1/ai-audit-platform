@@ -684,7 +684,10 @@ class TestInterviewNodeAsync:
 
         result = await interview_node(base_audit_state)
 
-        mock_interrupt.assert_called_once()
+        # interrupt is called at least once for phase questions
+        # may be called additional times for dynamic follow-up questions
+        # if trigger keywords (like "예, 중요함") are detected
+        assert mock_interrupt.call_count >= 1
         assert "interview_responses" in result
 
     @pytest.mark.asyncio

@@ -574,7 +574,7 @@ class TestInterruptPausesWorkflow:
         """
         Test route_after_approval routes to END when rejected.
 
-        Returns "interrupt" to end workflow when not approved.
+        Returns "end" to terminate workflow when not approved.
         """
         state = AuditState(
             messages=[],
@@ -591,7 +591,7 @@ class TestInterruptPausesWorkflow:
 
         route = route_after_approval(state)
 
-        assert route == "interrupt"
+        assert route == "end"
 
 
 # ============================================================================
@@ -605,7 +605,7 @@ class TestConditionalEdgesRouting:
         """
         Test that route_after_approval returns valid route string.
 
-        Valid routes: "manager_dispatch" or "interrupt"
+        Valid routes: "ega_parser", "manager_dispatch", or "end"
         """
         state_approved = AuditState(
             messages=[],
@@ -636,14 +636,14 @@ class TestConditionalEdgesRouting:
         route1 = route_after_approval(state_approved)
         route2 = route_after_approval(state_rejected)
 
-        assert route1 in ["manager_dispatch", "interrupt"]
-        assert route2 in ["manager_dispatch", "interrupt"]
+        assert route1 in ["ega_parser", "manager_dispatch", "end"]
+        assert route2 in ["ega_parser", "manager_dispatch", "end"]
 
     def test_conditional_edge_missing_is_approved(self):
         """
         Test route_after_approval handles missing is_approved field.
 
-        Should default to treating as not approved.
+        Should default to treating as not approved, routing to "end".
         """
         state = AuditState(
             messages=[],
@@ -660,17 +660,16 @@ class TestConditionalEdgesRouting:
 
         route = route_after_approval(state)
 
-        # Should treat missing/false as not approved
-        assert route == "interrupt"
+        # Should treat missing/false as not approved, routing to "end"
+        assert route == "end"
 
     def test_approval_state_update_flow(self):
         """
         Test complete approval state update flow.
 
         Flow:
-        1. Start with is_approved=False
-        2. Update to is_approved=True
-        3. Route to manager_dispatch
+        1. Start with is_approved=False → routes to "end"
+        2. Update to is_approved=True → routes to "manager_dispatch"
         """
         # Initial state
         state = AuditState(
@@ -686,9 +685,9 @@ class TestConditionalEdgesRouting:
             shared_documents=[]
         )
 
-        # Initially not approved
+        # Initially not approved - routes to "end"
         route1 = route_after_approval(state)
-        assert route1 == "interrupt"
+        assert route1 == "end"
 
         # Update approval
         state["is_approved"] = True
