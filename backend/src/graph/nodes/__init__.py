@@ -17,6 +17,7 @@ Available Nodes:
 - process_individual_hitl_node: Individual HITL request processing
 - ega_parser_node: EGA extraction from Assigned Workflow documents
 - task_generator_node: 3-level task hierarchy generation from EGAs
+- urgency_node: Task urgency score calculation for HITL escalation
 
 Reference: AUDIT_PLATFORM_SPECIFICATION.md Section 4.4
 """
@@ -72,6 +73,19 @@ from .task_generator import (
     TaskStatus,
     RiskLevel,
 )
+from .urgency_node import (
+    urgency_node,
+    calculate_task_urgency_score,
+    calculate_urgency_scores,
+    get_urgency_summary,
+    filter_tasks_by_urgency,
+    sort_tasks_by_urgency,
+    get_hitl_candidates,
+    UrgencyLevel,
+    UrgencyCalculationResult,
+    TaskUrgencyInfo,
+    DEFAULT_URGENCY_CONFIG as URGENCY_DEFAULT_CONFIG,
+)
 
 __all__ = [
     "partner_planning_node",
@@ -119,4 +133,15 @@ __all__ = [
     "TaskLevel",
     "TaskStatus",
     "RiskLevel",
+    "urgency_node",
+    "calculate_task_urgency_score",
+    "calculate_urgency_scores",
+    "get_urgency_summary",
+    "filter_tasks_by_urgency",
+    "sort_tasks_by_urgency",
+    "get_hitl_candidates",
+    "UrgencyLevel",
+    "UrgencyCalculationResult",
+    "TaskUrgencyInfo",
+    "URGENCY_DEFAULT_CONFIG",
 ]
