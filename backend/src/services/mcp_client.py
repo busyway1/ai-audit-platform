@@ -543,6 +543,616 @@ class MCPRagClient:
 
 
 # ============================================================================
+# MCP EXCEL PROCESSOR CLIENT
+# ============================================================================
+
+@dataclass
+class MCPExcelClientConfig:
+    """Configuration for MCP Excel Processor Client.
+
+    Attributes:
+        base_url: MCP Excel Processor server base URL
+        timeout: Request timeout in seconds (default: 60 for large files)
+        max_retries: Maximum retry attempts for failed requests (default: 3)
+        retry_delay: Initial delay between retries in seconds (default: 1.0)
+        retry_backoff: Exponential backoff multiplier (default: 2.0)
+    """
+    base_url: str = "http://localhost:8003"
+    timeout: float = 60.0
+    max_retries: int = 3
+    retry_delay: float = 1.0
+    retry_backoff: float = 2.0
+
+
+class MCPExcelClientError(Exception):
+    """Base exception for MCP Excel client errors."""
+    pass
+
+
+class MCPExcelConnectionError(MCPExcelClientError):
+    """Raised when connection to MCP Excel server fails."""
+    pass
+
+
+class MCPExcelParseError(MCPExcelClientError):
+    """Raised when Excel parsing fails."""
+    pass
+
+
+class MCPExcelClient:
+    """MCP Excel Processor Client for financial data extraction.
+
+    This client provides access to the MCP Excel Processor server for:
+    - Parsing Excel files (trial balance, financial statements)
+    - Extracting transaction data with validation
+    - Detecting anomalies in financial data
+    - Supporting multiple Excel formats (.xlsx, .xls)
+
+    The client is designed for use in the Excel_Parser Staff agent within
+    the AI Audit platform's multi-agent architecture.
+
+    Example:
+        ```python
+        async with MCPExcelClient() as client:
+            result = await client.parse_excel(
+                file_path="/path/to/trial_balance.xlsx",
+                sheet_name="TB",
+                category="Sales"
+            )
+        ```
+    """
+
+    def __init__(
+        self,
+        base_url: Optional[str] = None,
+        timeout: float = 60.0,
+        config: Optional[MCPExcelClientConfig] = None
+    ):
+        """Initialize MCP Excel client.
+
+        Args:
+            base_url: MCP Excel server URL. Defaults to MCP_EXCEL_SERVER_URL env var
+                     or http://localhost:8003
+            timeout: Request timeout in seconds (default: 60s for large files)
+            config: Optional MCPExcelClientConfig for advanced settings.
+        """
+        if config:
+            self.config = config
+        else:
+            resolved_url = base_url or os.getenv(
+                "MCP_EXCEL_SERVER_URL",
+                "http://localhost:8003"
+            )
+            self.config = MCPExcelClientConfig(
+                base_url=resolved_url.rstrip('/'),
+                timeout=timeout
+            )
+
+        self.base_url = self.config.base_url
+        self.timeout = self.config.timeout
+        self.mcp_endpoint = f"{self.base_url}/mcp"
+        self.health_endpoint = f"{self.base_url}/health"
+        self._client: Optional[httpx.AsyncClient] = None
+
+        logger.info(f"MCPExcelClient initialized with server: {self.base_url}")
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create async HTTP client."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=httpx.Timeout(self.timeout),
+                headers={"Content-Type": "application/json"}
+            )
+        return self._client
+
+    async def close(self) -> None:
+        """Close the HTTP client connection."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
+
+    async def __aenter__(self) -> "MCPExcelClient":
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Async context manager exit with cleanup."""
+        await self.close()
+
+    async def _execute_with_retry(
+        self,
+        method: str,
+        endpoint: str,
+        payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute HTTP request with retry logic."""
+        client = await self._get_client()
+        last_error: Optional[Exception] = None
+
+        for attempt in range(self.config.max_retries):
+            try:
+                if method.upper() == "POST":
+                    response = await client.post(endpoint, json=payload)
+                elif method.upper() == "GET":
+                    response = await client.get(endpoint, params=payload)
+                else:
+                    raise ValueError(f"Unsupported HTTP method: {method}")
+
+                response.raise_for_status()
+                result = response.json()
+
+                if "error" in result:
+                    error_msg = result.get("error", {})
+                    if isinstance(error_msg, dict):
+                        error_msg = error_msg.get("message", str(error_msg))
+                    raise MCPExcelParseError(f"MCP Excel error: {error_msg}")
+
+                return result
+
+            except httpx.ConnectError as e:
+                last_error = e
+                logger.warning(
+                    f"Excel server connection failed (attempt {attempt + 1}/"
+                    f"{self.config.max_retries}): {e}"
+                )
+            except httpx.TimeoutException as e:
+                last_error = e
+                logger.warning(
+                    f"Excel server timeout (attempt {attempt + 1}/"
+                    f"{self.config.max_retries}): {e}"
+                )
+            except httpx.HTTPStatusError as e:
+                if 400 <= e.response.status_code < 500:
+                    raise MCPExcelParseError(
+                        f"Client error {e.response.status_code}: {e.response.text}"
+                    )
+                last_error = e
+            except MCPExcelParseError:
+                raise
+
+            if attempt < self.config.max_retries - 1:
+                delay = self.config.retry_delay * (self.config.retry_backoff ** attempt)
+                await asyncio.sleep(delay)
+
+        raise MCPExcelConnectionError(
+            f"Failed to connect to MCP Excel server after {self.config.max_retries} "
+            f"attempts. Last error: {last_error}"
+        )
+
+    async def health_check(self) -> bool:
+        """Check if MCP Excel server is available."""
+        try:
+            client = await self._get_client()
+            response = await client.get(self.health_endpoint, timeout=5.0)
+            return response.status_code == 200
+        except Exception as e:
+            logger.warning(f"MCP Excel health check failed: {e}")
+            return False
+
+    async def _call_tool(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Call an MCP tool via JSON-RPC protocol."""
+        request = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": arguments
+            }
+        }
+        result = await self._execute_with_retry("POST", self.mcp_endpoint, request)
+        return result.get("result", {})
+
+    async def parse_excel(
+        self,
+        file_path: Optional[str] = None,
+        file_url: Optional[str] = None,
+        sheet_name: Optional[str] = None,
+        category: str = "General",
+        validate_data: bool = True,
+        detect_anomalies: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Parse Excel file and extract financial data.
+
+        Args:
+            file_path: Local path to Excel file
+            file_url: URL to download Excel file (e.g., Supabase Storage URL)
+            sheet_name: Specific sheet to parse (default: first sheet)
+            category: Account category for context (Sales, Inventory, AR, etc.)
+            validate_data: Perform data validation checks (default: True)
+            detect_anomalies: Run anomaly detection (default: True)
+
+        Returns:
+            Dict with parsed data:
+            {
+                "status": "success" | "error",
+                "data": {
+                    "category": str,
+                    "total_amount": float,
+                    "transaction_count": int,
+                    "period": str,
+                    "transactions": [
+                        {
+                            "date": str,
+                            "amount": float,
+                            "description": str,
+                            "account_code": str,
+                            "reference": str
+                        }
+                    ],
+                    "summary": {
+                        "min_amount": float,
+                        "max_amount": float,
+                        "avg_amount": float,
+                        "std_dev": float
+                    },
+                    "data_quality": "GOOD" | "WARNING" | "POOR",
+                    "anomalies": [
+                        {
+                            "type": str,
+                            "description": str,
+                            "row": int,
+                            "severity": str
+                        }
+                    ],
+                    "parsed_at": str
+                },
+                "metadata": {
+                    "file_name": str,
+                    "sheet_name": str,
+                    "row_count": int,
+                    "column_count": int,
+                    "processing_time_ms": float
+                }
+            }
+
+        Raises:
+            MCPExcelParseError: If parsing fails
+            MCPExcelConnectionError: If server is unavailable
+        """
+        if not file_path and not file_url:
+            raise ValueError("Either file_path or file_url must be provided")
+
+        logger.info(
+            f"parse_excel: file={file_path or file_url}, "
+            f"category={category}, sheet={sheet_name}"
+        )
+
+        arguments = {
+            "category": category,
+            "validate_data": validate_data,
+            "detect_anomalies": detect_anomalies
+        }
+
+        if file_path:
+            arguments["file_path"] = file_path
+        if file_url:
+            arguments["file_url"] = file_url
+        if sheet_name:
+            arguments["sheet_name"] = sheet_name
+
+        return await self._call_tool("parse_excel", arguments)
+
+    async def extract_trial_balance(
+        self,
+        file_path: Optional[str] = None,
+        file_url: Optional[str] = None,
+        fiscal_year: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Extract trial balance data from Excel file.
+
+        Specialized method for trial balance extraction with:
+        - Account code recognition
+        - Debit/credit validation
+        - Balance reconciliation
+
+        Args:
+            file_path: Local path to Excel file
+            file_url: URL to download Excel file
+            fiscal_year: Fiscal year for context
+
+        Returns:
+            Dict with trial balance data
+        """
+        if not file_path and not file_url:
+            raise ValueError("Either file_path or file_url must be provided")
+
+        logger.info(f"extract_trial_balance: file={file_path or file_url}")
+
+        arguments = {}
+        if file_path:
+            arguments["file_path"] = file_path
+        if file_url:
+            arguments["file_url"] = file_url
+        if fiscal_year:
+            arguments["fiscal_year"] = fiscal_year
+
+        return await self._call_tool("extract_trial_balance", arguments)
+
+    async def validate_financial_data(
+        self,
+        data: Dict[str, Any],
+        validation_rules: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Validate financial data against audit rules.
+
+        Args:
+            data: Financial data dictionary to validate
+            validation_rules: Specific rules to apply (default: all)
+
+        Returns:
+            Dict with validation results
+        """
+        arguments = {
+            "data": data
+        }
+        if validation_rules:
+            arguments["validation_rules"] = validation_rules
+
+        return await self._call_tool("validate_financial_data", arguments)
+
+
+# ============================================================================
+# MCP DOCUMENT GENERATOR CLIENT
+# ============================================================================
+
+@dataclass
+class MCPDocumentClientConfig:
+    """Configuration for MCP Document Generator Client."""
+    base_url: str = "http://localhost:8004"
+    timeout: float = 120.0  # Longer timeout for document generation
+    max_retries: int = 3
+    retry_delay: float = 1.0
+    retry_backoff: float = 2.0
+
+
+class MCPDocumentClientError(Exception):
+    """Base exception for MCP Document client errors."""
+    pass
+
+
+class MCPDocumentConnectionError(MCPDocumentClientError):
+    """Raised when connection to MCP Document server fails."""
+    pass
+
+
+class MCPDocumentGenerationError(MCPDocumentClientError):
+    """Raised when document generation fails."""
+    pass
+
+
+class MCPDocumentClient:
+    """MCP Document Generator Client for workpaper generation.
+
+    This client provides access to the MCP Document Generator server for:
+    - Generating audit workpapers (Word/PDF)
+    - Creating structured reports
+    - Applying audit document templates
+
+    Example:
+        ```python
+        async with MCPDocumentClient() as client:
+            result = await client.generate_workpaper(
+                content=workpaper_draft,
+                template="audit_workpaper",
+                output_format="docx"
+            )
+        ```
+    """
+
+    def __init__(
+        self,
+        base_url: Optional[str] = None,
+        timeout: float = 120.0,
+        config: Optional[MCPDocumentClientConfig] = None
+    ):
+        """Initialize MCP Document client."""
+        if config:
+            self.config = config
+        else:
+            resolved_url = base_url or os.getenv(
+                "MCP_DOCUMENT_SERVER_URL",
+                "http://localhost:8004"
+            )
+            self.config = MCPDocumentClientConfig(
+                base_url=resolved_url.rstrip('/'),
+                timeout=timeout
+            )
+
+        self.base_url = self.config.base_url
+        self.timeout = self.config.timeout
+        self.mcp_endpoint = f"{self.base_url}/mcp"
+        self.health_endpoint = f"{self.base_url}/health"
+        self._client: Optional[httpx.AsyncClient] = None
+
+        logger.info(f"MCPDocumentClient initialized with server: {self.base_url}")
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create async HTTP client."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=httpx.Timeout(self.timeout),
+                headers={"Content-Type": "application/json"}
+            )
+        return self._client
+
+    async def close(self) -> None:
+        """Close the HTTP client connection."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
+
+    async def __aenter__(self) -> "MCPDocumentClient":
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Async context manager exit with cleanup."""
+        await self.close()
+
+    async def _execute_with_retry(
+        self,
+        method: str,
+        endpoint: str,
+        payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute HTTP request with retry logic."""
+        client = await self._get_client()
+        last_error: Optional[Exception] = None
+
+        for attempt in range(self.config.max_retries):
+            try:
+                if method.upper() == "POST":
+                    response = await client.post(endpoint, json=payload)
+                else:
+                    raise ValueError(f"Unsupported HTTP method: {method}")
+
+                response.raise_for_status()
+                result = response.json()
+
+                if "error" in result:
+                    error_msg = result.get("error", {})
+                    if isinstance(error_msg, dict):
+                        error_msg = error_msg.get("message", str(error_msg))
+                    raise MCPDocumentGenerationError(f"MCP Document error: {error_msg}")
+
+                return result
+
+            except httpx.ConnectError as e:
+                last_error = e
+                logger.warning(
+                    f"Document server connection failed (attempt {attempt + 1}/"
+                    f"{self.config.max_retries}): {e}"
+                )
+            except httpx.TimeoutException as e:
+                last_error = e
+                logger.warning(
+                    f"Document server timeout (attempt {attempt + 1}/"
+                    f"{self.config.max_retries}): {e}"
+                )
+            except httpx.HTTPStatusError as e:
+                if 400 <= e.response.status_code < 500:
+                    raise MCPDocumentGenerationError(
+                        f"Client error {e.response.status_code}: {e.response.text}"
+                    )
+                last_error = e
+            except MCPDocumentGenerationError:
+                raise
+
+            if attempt < self.config.max_retries - 1:
+                delay = self.config.retry_delay * (self.config.retry_backoff ** attempt)
+                await asyncio.sleep(delay)
+
+        raise MCPDocumentConnectionError(
+            f"Failed to connect to MCP Document server after {self.config.max_retries} "
+            f"attempts. Last error: {last_error}"
+        )
+
+    async def health_check(self) -> bool:
+        """Check if MCP Document server is available."""
+        try:
+            client = await self._get_client()
+            response = await client.get(self.health_endpoint, timeout=5.0)
+            return response.status_code == 200
+        except Exception as e:
+            logger.warning(f"MCP Document health check failed: {e}")
+            return False
+
+    async def _call_tool(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Call an MCP tool via JSON-RPC protocol."""
+        request = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": arguments
+            }
+        }
+        result = await self._execute_with_retry("POST", self.mcp_endpoint, request)
+        return result.get("result", {})
+
+    async def generate_workpaper(
+        self,
+        content: str,
+        template: str = "audit_workpaper",
+        output_format: str = "docx",
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate audit workpaper document.
+
+        Args:
+            content: Markdown content for the workpaper
+            template: Template name (audit_workpaper, summary_report, etc.)
+            output_format: Output format (docx, pdf, xlsx)
+            metadata: Document metadata (task_id, client, fiscal_year, etc.)
+
+        Returns:
+            Dict with generation results:
+            {
+                "status": "success" | "error",
+                "data": {
+                    "file_url": str,  # URL to download generated file
+                    "file_name": str,
+                    "file_size": int,
+                    "format": str,
+                    "generated_at": str
+                }
+            }
+        """
+        logger.info(f"generate_workpaper: template={template}, format={output_format}")
+
+        arguments = {
+            "content": content,
+            "template": template,
+            "output_format": output_format
+        }
+        if metadata:
+            arguments["metadata"] = metadata
+
+        return await self._call_tool("generate_workpaper", arguments)
+
+    async def create_audit_report(
+        self,
+        sections: List[Dict[str, Any]],
+        report_type: str = "standard",
+        output_format: str = "docx"
+    ) -> Dict[str, Any]:
+        """
+        Create structured audit report from sections.
+
+        Args:
+            sections: List of section dictionaries
+            report_type: Report type (standard, summary, management_letter)
+            output_format: Output format
+
+        Returns:
+            Dict with report generation results
+        """
+        arguments = {
+            "sections": sections,
+            "report_type": report_type,
+            "output_format": output_format
+        }
+
+        return await self._call_tool("create_audit_report", arguments)
+
+
+# ============================================================================
 # CONVENIENCE FUNCTIONS
 # ============================================================================
 
