@@ -33,11 +33,26 @@ class AuditState(TypedDict):
     tasks: List[Dict[str, Any]]  # Metadata for each task (id, thread_id, status, risk_score)
 
     # 4. Human-in-the-loop state
-    next_action: str  # "WAIT_FOR_APPROVAL" | "CONTINUE" | "INTERRUPT"
+    next_action: str  # "WAIT_FOR_APPROVAL" | "CONTINUE" | "INTERRUPT" | "ENTER_PLAN_MODE"
     is_approved: bool
 
     # 5. Shared knowledge base
     shared_documents: List[Dict[str, Any]]  # Uploaded file metadata
+
+    # 6. Interview workflow state
+    interview_complete: bool  # True when interview workflow is finished
+    interview_phase: int  # Current interview phase (1-5)
+    interview_responses: List[Dict[str, Any]]  # Collected interview responses
+    specification: Dict[str, Any]  # Generated specification document from interview
+
+    # 7. EGA (Expected General Activities) management
+    egas: List[Dict[str, Any]]  # List of EGAs extracted from Assigned Workflow documents
+    # Each EGA contains: id, name, description, risk_level, priority, task_count, progress
+
+    # 8. Urgency configuration
+    urgency_config: Dict[str, Any]  # Configuration for urgency calculation
+    # Contains: materiality_weight (default 0.40), risk_weight (0.35), ai_confidence_weight (0.25)
+    # Also includes: hitl_threshold (urgency score threshold for HITL escalation)
 
 
 class TaskState(TypedDict):
