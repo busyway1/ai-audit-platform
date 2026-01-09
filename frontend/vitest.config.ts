@@ -10,7 +10,7 @@ export default defineConfig({
     setupFiles: './src/test/setup.ts',
     css: true,
     env: {
-      VITE_API_URL: 'http://localhost:8000',
+      VITE_API_URL: 'http://localhost:8080',
       VITE_SUPABASE_URL: 'http://localhost:54321',
       VITE_SUPABASE_ANON_KEY: 'test-anon-key',
     },

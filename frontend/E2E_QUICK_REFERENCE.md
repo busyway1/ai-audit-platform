@@ -89,7 +89,7 @@ npm run test:e2e -- --trace on
 
 ### Check Backend Health
 ```bash
-curl http://localhost:8000/api/health
+curl http://localhost:8080/api/health
 ```
 
 ### Start Backend (if not running)
@@ -107,7 +107,7 @@ npm run dev
 
 ### Check Both Servers Running
 ```bash
-curl http://localhost:8000/api/health && curl http://localhost:5173
+curl http://localhost:8080/api/health && curl http://localhost:5173
 echo "Both servers healthy"
 ```
 
@@ -227,7 +227,7 @@ npm run test:e2e -- --list
 cd backend && source venv/bin/activate && python -m src.main
 
 # Verify:
-curl http://localhost:8000/api/health
+curl http://localhost:8080/api/health
 ```
 
 ### Problem: "Tests timeout frequently"

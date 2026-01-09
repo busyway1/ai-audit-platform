@@ -6,7 +6,7 @@
  */
 
 const BASE_URL = process.env.VITE_FRONTEND_URL || 'http://localhost:5173';
-const BACKEND_URL = process.env.VITE_API_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.VITE_API_URL || 'http://localhost:8080';
 
 /**
  * Application routes matching TanStack Router configuration

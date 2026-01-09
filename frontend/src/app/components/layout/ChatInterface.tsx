@@ -1,7 +1,71 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, User, Bot } from 'lucide-react';
+import { Send, User, Bot, Briefcase, ClipboardList, HardHat, Settings, LucideIcon } from 'lucide-react';
 import { useChatStore } from '../../stores/useChatStore';
 import { useStreamingChat } from '../../hooks/useStreamingChat';
+import type { ChatSender } from '../../types/audit';
+
+/**
+ * Agent styling configuration for visual distinction of different roles
+ */
+interface AgentStyle {
+  color: string;
+  bgColor: string;
+  borderColor: string;
+  icon: LucideIcon;
+  badge: string | null;
+  label: string;
+}
+
+const AGENT_STYLES: Record<ChatSender, AgentStyle> = {
+  user: {
+    color: 'text-gray-500',
+    bgColor: 'bg-gray-100',
+    borderColor: 'border-gray-300',
+    icon: User,
+    badge: null,
+    label: 'You',
+  },
+  ai: {
+    color: 'text-blue-500',
+    bgColor: 'bg-blue-50',
+    borderColor: 'border-blue-300',
+    icon: Bot,
+    badge: 'AI',
+    label: 'AI Assistant',
+  },
+  partner: {
+    color: 'text-blue-600',
+    bgColor: 'bg-blue-50',
+    borderColor: 'border-blue-400',
+    icon: Briefcase,
+    badge: 'Partner',
+    label: 'Partner',
+  },
+  manager: {
+    color: 'text-green-600',
+    bgColor: 'bg-green-50',
+    borderColor: 'border-green-400',
+    icon: ClipboardList,
+    badge: 'Manager',
+    label: 'Manager',
+  },
+  staff: {
+    color: 'text-slate-600',
+    bgColor: 'bg-slate-50',
+    borderColor: 'border-slate-400',
+    icon: HardHat,
+    badge: 'Staff',
+    label: 'Staff',
+  },
+  system: {
+    color: 'text-orange-500',
+    bgColor: 'bg-orange-50',
+    borderColor: 'border-orange-400',
+    icon: Settings,
+    badge: 'System',
+    label: 'System',
+  },
+};
 
 export function ChatInterface() {
   const { messages } = useChatStore();
@@ -58,45 +122,75 @@ export function ChatInterface() {
           </div>
         )}
 
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
-            <div className={`max-w-2xl ${message.sender === 'user' ? 'order-2' : 'order-1'}`}>
-              <div className={`flex items-center gap-2 mb-1 ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-                {message.sender === 'ai' && (
-                  <div className="size-6 bg-blue-600 rounded-full flex items-center justify-center">
-                    <Bot className="size-4 text-white" />
-                  </div>
-                )}
-                <span className="text-xs text-gray-600">
-                  {message.sender === 'user' ? 'You' : 'AI Assistant'}
-                </span>
-                <span className="text-xs text-gray-400">
-                  {formatTimestamp(message.timestamp)}
-                </span>
-                {message.sender === 'user' && (
-                  <div className="size-6 bg-gray-600 rounded-full flex items-center justify-center">
-                    <User className="size-4 text-white" />
-                  </div>
-                )}
-              </div>
+        {messages.map((message) => {
+          const agentStyle = AGENT_STYLES[message.sender] || AGENT_STYLES.ai;
+          const AgentIcon = agentStyle.icon;
+          const isUser = message.sender === 'user';
 
-              <div
-                className={`rounded-lg p-4 ${
-                  message.sender === 'user'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white border border-gray-200'
-                }`}
-              >
-                <div className={`whitespace-pre-wrap text-sm leading-relaxed ${message.streaming ? 'italic text-gray-500' : ''}`}>
-                  {message.content}
+          return (
+            <div
+              key={message.id}
+              className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
+            >
+              <div className={`max-w-2xl ${isUser ? 'order-2' : 'order-1'}`}>
+                {/* Agent Header with Icon and Badge */}
+                <div className={`flex items-center gap-2 mb-1 ${isUser ? 'justify-end' : 'justify-start'}`}>
+                  {!isUser && (
+                    <div className={`size-6 rounded-full flex items-center justify-center ${agentStyle.bgColor} border ${agentStyle.borderColor}`}>
+                      <AgentIcon className={`size-3.5 ${agentStyle.color}`} />
+                    </div>
+                  )}
+                  {!isUser && agentStyle.badge && (
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${agentStyle.bgColor} ${agentStyle.color} border ${agentStyle.borderColor}`}>
+                      {agentStyle.badge}
+                    </span>
+                  )}
+                  <span className="text-xs text-gray-600">
+                    {agentStyle.label}
+                  </span>
+                  <span className="text-xs text-gray-400">
+                    {formatTimestamp(message.timestamp)}
+                  </span>
+                  {isUser && (
+                    <div className="size-6 bg-gray-600 rounded-full flex items-center justify-center">
+                      <User className="size-4 text-white" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Message Content with Agent-Specific Border */}
+                <div
+                  className={`rounded-lg p-4 border-l-4 ${
+                    isUser
+                      ? 'bg-blue-600 text-white border-l-blue-700'
+                      : `${agentStyle.bgColor} border ${agentStyle.borderColor}`
+                  }`}
+                >
+                  <div className={`whitespace-pre-wrap text-sm leading-relaxed ${
+                    message.streaming
+                      ? 'italic text-gray-500'
+                      : isUser
+                        ? 'text-white'
+                        : 'text-gray-800'
+                  }`}>
+                    {message.streaming && !message.content ? (
+                      <span className="flex items-center gap-2">
+                        <span className="animate-pulse">Thinking</span>
+                        <span className="flex gap-1">
+                          <span className="animate-bounce" style={{ animationDelay: '0ms' }}>.</span>
+                          <span className="animate-bounce" style={{ animationDelay: '150ms' }}>.</span>
+                          <span className="animate-bounce" style={{ animationDelay: '300ms' }}>.</span>
+                        </span>
+                      </span>
+                    ) : (
+                      message.content
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         <div ref={messagesEndRef} />
       </div>
 

@@ -19,12 +19,12 @@ This test validates the entire audit workflow from project creation to workpaper
    cd backend
    source venv/bin/activate
    python -m src.main
-   # Server should be running at http://localhost:8000
+   # Server should be running at http://localhost:8080
    ```
 
 2. **Backend Health Check**
    ```bash
-   curl http://localhost:8000/api/health
+   curl http://localhost:8080/api/health
    # Should return: {"status": "healthy"}
    ```
 
@@ -44,7 +44,7 @@ This test validates the entire audit workflow from project creation to workpaper
 2. **Environment Variables**
    - `VITE_SUPABASE_URL`: Supabase project URL
    - `VITE_SUPABASE_ANON_KEY`: Supabase anonymous key
-   - `VITE_API_URL`: Backend API URL (default: http://localhost:8000)
+   - `VITE_API_URL`: Backend API URL (default: http://localhost:8080)
 
 ## Test Flow
 
@@ -241,7 +241,7 @@ The test logs detailed progress:
    ⚠️  Backend not available - skipping test
    ```
    - Solution: Start backend server (`python -m src.main`)
-   - Verify health: `curl http://localhost:8000/api/health`
+   - Verify health: `curl http://localhost:8080/api/health`
 
 2. **Timeout Waiting for Partner**
    ```

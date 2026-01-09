@@ -21,7 +21,7 @@ import { ChildProcess, spawn } from 'child_process';
 import { resolve } from 'path';
 
 // Server configuration
-const BACKEND_PORT = 8000;
+const BACKEND_PORT = 8080;
 const FRONTEND_PORT = 5173;
 const BACKEND_URL = process.env.VITE_API_URL || `http://localhost:${BACKEND_PORT}`;
 const FRONTEND_URL = process.env.VITE_FRONTEND_URL || `http://localhost:${FRONTEND_PORT}`;

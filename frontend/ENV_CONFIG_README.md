@@ -39,7 +39,7 @@ npm run dev
 ```
 
 The development server will automatically use:
-- `VITE_API_URL=http://localhost:8000` (from `.env.development`)
+- `VITE_API_URL=http://localhost:8080` (from `.env.development`)
 - `VITE_API_TIMEOUT=30000` (from `.env.development`)
 
 ### 2. Production Setup
@@ -66,7 +66,7 @@ npm run preview
 
 | Variable | Description | Development | Production |
 |----------|-------------|-------------|------------|
-| `VITE_API_URL` | Backend API base URL | `http://localhost:8000` | `https://api.your-domain.com` |
+| `VITE_API_URL` | Backend API base URL | `http://localhost:8080` | `https://api.your-domain.com` |
 | `VITE_API_TIMEOUT` | Request timeout (ms) | `30000` | `30000` |
 
 ### Optional Variables
@@ -93,13 +93,13 @@ import { getApiUrl, API_CONFIG, API_ENDPOINTS } from '@/config/api';
 ```typescript
 // Method 1: Use getApiUrl() helper
 const url = getApiUrl('/api/projects/start');
-// Returns: 'http://localhost:8000/api/projects/start' (dev)
+// Returns: 'http://localhost:8080/api/projects/start' (dev)
 // Returns: 'https://api.your-domain.com/api/projects/start' (prod)
 
 // Method 2: Use predefined endpoints
 import { API_ENDPOINTS } from '@/config/api';
 const url = getApiUrl(API_ENDPOINTS.health);
-// Returns: 'http://localhost:8000/api/health'
+// Returns: 'http://localhost:8080/api/health'
 ```
 
 ### Access Configuration
@@ -108,7 +108,7 @@ const url = getApiUrl(API_ENDPOINTS.health);
 import { API_CONFIG } from '@/config/api';
 
 const timeout = API_CONFIG.timeout; // 30000
-const baseUrl = API_CONFIG.baseUrl; // 'http://localhost:8000'
+const baseUrl = API_CONFIG.baseUrl; // 'http://localhost:8080'
 ```
 
 ### Full Example (Fetch Request)
@@ -142,7 +142,7 @@ E2E tests automatically use environment variables for server URLs:
 
 ```typescript
 // frontend/e2e/utils/server-manager.ts
-const BACKEND_URL = process.env.VITE_API_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.VITE_API_URL || 'http://localhost:8080';
 const FRONTEND_URL = process.env.VITE_FRONTEND_URL || 'http://localhost:5173';
 ```
 
@@ -188,7 +188,7 @@ npm run test:e2e
 ### Local Development
 
 ```env
-VITE_API_URL=http://localhost:8000
+VITE_API_URL=http://localhost:8080
 VITE_API_TIMEOUT=30000
 ```
 
@@ -226,10 +226,10 @@ Files used: `.env.production` or CI/CD environment variables
 
 ```env
 # ❌ Wrong - won't be exposed to client
-API_URL=http://localhost:8000
+API_URL=http://localhost:8080
 
 # ✅ Correct - exposed to client
-VITE_API_URL=http://localhost:8000
+VITE_API_URL=http://localhost:8080
 ```
 
 ### Issue: Changes not reflecting

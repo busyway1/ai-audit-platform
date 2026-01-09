@@ -14,10 +14,10 @@ const sleep = promisify(setTimeout);
  * Backend server configuration
  */
 export const BACKEND_CONFIG = {
-  url: process.env.VITE_API_URL || 'http://localhost:8000',
+  url: process.env.VITE_API_URL || 'http://localhost:8080',
   healthEndpoint: '/api/health',
   startupTimeout: Number(process.env.VITE_API_TIMEOUT) || 30000,
-  port: 8000,
+  port: 8080,
 };
 
 /**
@@ -99,7 +99,7 @@ export async function startBackendServer(): Promise<ChildProcess | null> {
   }
 
   // Start server
-  const backendProcess = spawn('uvicorn', ['src.main:app', '--reload', '--port', '8000'], {
+  const backendProcess = spawn('uvicorn', ['src.main:app', '--reload', '--port', '8080'], {
     cwd: process.cwd().replace('/frontend', '/backend'),
     detached: true,
     stdio: 'ignore',

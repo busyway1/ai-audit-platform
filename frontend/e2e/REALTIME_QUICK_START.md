@@ -107,7 +107,7 @@ import { createRealtimeHelpers } from './realtime-helpers'
 
 const helpers = createRealtimeHelpers(page, {
   baseUrl: 'http://localhost:5173',
-  apiUrl: 'http://localhost:8000',
+  apiUrl: 'http://localhost:8080',
 })
 ```
 
@@ -252,7 +252,7 @@ const summary = tracker.getSummary()
 ### Test Timeout (>5000ms latency)
 **Cause**: Backend slow, network issue, or connection problem
 **Solution**:
-1. Check backend is running: `curl http://localhost:8000/health`
+1. Check backend is running: `curl http://localhost:8080/health`
 2. Check frontend: `http://localhost:5173`
 3. Verify Supabase connection in console
 4. Increase timeout: `{ timeout: 10000 }`

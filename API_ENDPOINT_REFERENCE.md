@@ -1,7 +1,7 @@
 # API Endpoint Reference & Testing Commands
 
 **Platform**: AI Audit Platform v1.0.0
-**Base URL**: `http://localhost:8000`
+**Base URL**: `http://localhost:8080`
 **Frontend URL**: `http://localhost:5173`
 
 ---
@@ -48,7 +48,7 @@ The AI Audit Platform exposes RESTful API endpoints for workflow management and 
 
 **Request**:
 ```bash
-curl http://localhost:8000/api/health
+curl http://localhost:8080/api/health
 ```
 
 **Response (200 OK)**:
@@ -104,7 +104,7 @@ Content-Type: application/json
 
 **Example Request**:
 ```bash
-curl -X POST http://localhost:8000/api/projects/start \
+curl -X POST http://localhost:8080/api/projects/start \
   -H "Content-Type: application/json" \
   -d '{
     "client_name": "Acme Corporation",
@@ -181,7 +181,7 @@ Content-Type: application/json
 
 **Example Request**:
 ```bash
-curl -X POST http://localhost:8000/api/tasks/approve \
+curl -X POST http://localhost:8080/api/tasks/approve \
   -H "Content-Type: application/json" \
   -d '{
     "thread_id": "project-acme-corporation-2024",
@@ -252,13 +252,13 @@ curl -X POST http://localhost:8000/api/tasks/approve \
 **Example Request**:
 ```bash
 # Using curl with -N (unbuffered)
-curl -N http://localhost:8000/stream/project-acme-corporation-2024
+curl -N http://localhost:8080/stream/project-acme-corporation-2024
 ```
 
 **Example using JavaScript**:
 ```javascript
 const eventSource = new EventSource(
-  'http://localhost:8000/stream/project-acme-corporation-2024'
+  'http://localhost:8080/stream/project-acme-corporation-2024'
 );
 
 eventSource.onmessage = (event) => {
@@ -317,7 +317,7 @@ data: {"message": "Staff agent executing first task..."}
 
 **Example Request**:
 ```bash
-curl http://localhost:8000/
+curl http://localhost:8080/
 ```
 
 **Response (200 OK)**:
@@ -340,7 +340,7 @@ curl http://localhost:8000/
 
 ### 6. Swagger UI (Interactive Docs)
 
-**URL**: `http://localhost:8000/docs`
+**URL**: `http://localhost:8080/docs`
 
 **Features**:
 - Interactive API documentation
@@ -350,7 +350,7 @@ curl http://localhost:8000/
 
 ### 7. ReDoc (API Reference)
 
-**URL**: `http://localhost:8000/redoc`
+**URL**: `http://localhost:8080/redoc`
 
 **Features**:
 - Clean API reference
@@ -369,11 +369,11 @@ curl http://localhost:8000/
 
 # 1. Health Check
 echo "1. Testing health endpoint..."
-curl http://localhost:8000/api/health | jq .
+curl http://localhost:8080/api/health | jq .
 
 # 2. Create Project
 echo -e "\n2. Creating project..."
-PROJECT_RESPONSE=$(curl -s -X POST http://localhost:8000/api/projects/start \
+PROJECT_RESPONSE=$(curl -s -X POST http://localhost:8080/api/projects/start \
   -H "Content-Type: application/json" \
   -d '{
     "client_name": "Test Corp",
@@ -391,13 +391,13 @@ sleep 2
 
 # 4. Approve Task
 echo -e "\n3. Approving task..."
-curl -s -X POST http://localhost:8000/api/tasks/approve \
+curl -s -X POST http://localhost:8080/api/tasks/approve \
   -H "Content-Type: application/json" \
   -d "{\"thread_id\":\"$THREAD_ID\",\"approved\":true}" | jq .
 
 # 5. Stream Messages (10 second timeout)
 echo -e "\n4. Streaming messages (10 sec)..."
-timeout 10 curl -N http://localhost:8000/stream/$THREAD_ID || true
+timeout 10 curl -N http://localhost:8080/stream/$THREAD_ID || true
 
 echo -e "\n✅ Test complete"
 ```
@@ -565,17 +565,17 @@ tail -f /Users/jaewookim/Desktop/Personal\ Coding/AI\ Audit/backend/backend.log
 
 Add verbose flag:
 ```bash
-curl -v http://localhost:8000/api/health
+curl -v http://localhost:8080/api/health
 ```
 
 Pretty print JSON:
 ```bash
-curl http://localhost:8000/api/health | jq .
+curl http://localhost:8080/api/health | jq .
 ```
 
 Save full response to file:
 ```bash
-curl -s -D headers.txt http://localhost:8000/api/health > response.json
+curl -s -D headers.txt http://localhost:8080/api/health > response.json
 ```
 
 ---
@@ -588,7 +588,7 @@ curl -s -D headers.txt http://localhost:8000/api/health > response.json
 import requests
 import json
 
-base_url = "http://localhost:8000"
+base_url = "http://localhost:8080"
 
 # 1. Health check
 response = requests.get(f"{base_url}/api/health")
@@ -629,13 +629,13 @@ for line in response.iter_lines():
 
 ```typescript
 // 1. Health check
-const health = await fetch('http://localhost:8000/api/health');
+const health = await fetch('http://localhost:8080/api/health');
 const healthData = await health.json();
 console.log('Health:', healthData);
 
 // 2. Start project
 const projectResponse = await fetch(
-  'http://localhost:8000/api/projects/start',
+  'http://localhost:8080/api/projects/start',
   {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -651,7 +651,7 @@ const threadId = project.thread_id;
 
 // 3. Approve task
 const approvalResponse = await fetch(
-  'http://localhost:8000/api/tasks/approve',
+  'http://localhost:8080/api/tasks/approve',
   {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -664,7 +664,7 @@ const approvalResponse = await fetch(
 
 // 4. Stream messages
 const eventSource = new EventSource(
-  `http://localhost:8000/stream/${threadId}`
+  `http://localhost:8080/stream/${threadId}`
 );
 eventSource.onmessage = (event) => {
   console.log('Message:', event.data);

@@ -1,7 +1,43 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { supabase } from '../../lib/supabase'
-import type { AuditProject, AuditProjectInsert, AuditProjectUpdate } from '../types/supabase'
+import { getApiUrl } from '../../config/api'
+import type { AuditProject, AuditProjectInsert, AuditProjectUpdate, AuditProjectStatus } from '../types/supabase'
+
+/**
+ * API Response types for backend endpoints
+ */
+interface ApiProjectResponse {
+  id: string
+  client_name: string
+  fiscal_year: number
+  overall_materiality: number | null
+  status: string
+  created_at: string
+  updated_at: string | null
+}
+
+interface ProjectListApiResponse {
+  status: string
+  projects: ApiProjectResponse[]
+  total: number
+}
+
+/**
+ * Convert API response to AuditProject type
+ */
+function convertApiProjectToAuditProject(apiProject: ApiProjectResponse): AuditProject {
+  return {
+    id: apiProject.id,
+    client_name: apiProject.client_name,
+    fiscal_year: apiProject.fiscal_year,
+    overall_materiality: apiProject.overall_materiality,
+    status: apiProject.status as AuditProjectStatus,
+    created_at: apiProject.created_at,
+    updated_at: apiProject.updated_at || apiProject.created_at,
+    metadata: {},
+  }
+}
 
 interface ProjectStoreState {
   projects: Record<string, AuditProject>
@@ -26,12 +62,15 @@ interface ProjectStoreActions {
 
 type ProjectStore = ProjectStoreState & ProjectStoreActions
 
+// Type for the set function from Zustand
+type SetState = {
+  (partial: ProjectStore | Partial<ProjectStore> | ((state: ProjectStore) => ProjectStore | Partial<ProjectStore>), replace?: false): void
+  (state: ProjectStore | ((state: ProjectStore) => ProjectStore), replace: true): void
+}
+
 // Separate the store definition to allow for persist middleware
 const createProjectStore = (
-  set: (
-    partial: ProjectStoreState | Partial<ProjectStoreState> | ((state: ProjectStoreState) => ProjectStoreState | Partial<ProjectStoreState>),
-    replace?: boolean
-  ) => void,
+  set: SetState,
   get: () => ProjectStore
 ): ProjectStore => ({
   // State
@@ -46,19 +85,21 @@ const createProjectStore = (
     set({ loading: true, error: null })
 
     try {
-      const { data, error } = await supabase
-        .from('audit_projects')
-        .select('*')
-        .order('created_at', { ascending: false })
+      // Fetch projects from backend API
+      const response = await fetch(getApiUrl('/api/projects'))
 
-      if (error) {
-        throw new Error(error.message)
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || `HTTP error: ${response.status}`)
       }
 
-      const projectMap = (data || []).reduce(
-        (acc, project) => ({
+      const data: ProjectListApiResponse = await response.json()
+
+      // Convert API response to store format
+      const projectMap = data.projects.reduce(
+        (acc, apiProject) => ({
           ...acc,
-          [project.id]: project,
+          [apiProject.id]: convertApiProjectToAuditProject(apiProject),
         }),
         {} as Record<string, AuditProject>
       )
@@ -72,26 +113,28 @@ const createProjectStore = (
 
   fetchProjectById: async (projectId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('audit_projects')
-        .select('*')
-        .eq('id', projectId)
-        .single()
+      // Fetch single project from backend API
+      const response = await fetch(getApiUrl(`/api/projects/${projectId}`))
 
-      if (error) {
-        throw new Error(error.message)
+      if (!response.ok) {
+        if (response.status === 404) {
+          return null
+        }
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || `HTTP error: ${response.status}`)
       }
 
-      if (data) {
-        set((state) => ({
-          projects: {
-            ...state.projects,
-            [data.id]: data,
-          },
-        }))
-      }
+      const data = await response.json()
+      const project = convertApiProjectToAuditProject(data.project)
 
-      return data || null
+      set((state) => ({
+        projects: {
+          ...state.projects,
+          [project.id]: project,
+        },
+      }))
+
+      return project
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to fetch project'
       set({ error: errorMessage })
@@ -103,26 +146,36 @@ const createProjectStore = (
     set({ error: null })
 
     try {
-      const { data: newProject, error } = await supabase
-        .from('audit_projects')
-        .insert([data])
-        .select()
-        .single()
+      // Create project via backend API
+      const response = await fetch(getApiUrl('/api/projects'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          client_name: data.client_name,
+          fiscal_year: data.fiscal_year,
+          overall_materiality: data.overall_materiality,
+          status: data.status?.toLowerCase() || 'planning',
+        }),
+      })
 
-      if (error) {
-        throw new Error(error.message)
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || `HTTP error: ${response.status}`)
       }
 
-      if (newProject) {
-        set((state) => ({
-          projects: {
-            ...state.projects,
-            [newProject.id]: newProject,
-          },
-        }))
-      }
+      const responseData = await response.json()
+      const newProject = convertApiProjectToAuditProject(responseData.project)
 
-      return newProject || null
+      set((state) => ({
+        projects: {
+          ...state.projects,
+          [newProject.id]: newProject,
+        },
+      }))
+
+      return newProject
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to create project'
       set({ error: errorMessage })
@@ -134,28 +187,34 @@ const createProjectStore = (
     set({ error: null })
 
     try {
-      const { error } = await supabase
-        .from('audit_projects')
-        .update(updateData)
-        .eq('id', projectId)
+      // Update project via backend API
+      const response = await fetch(getApiUrl(`/api/projects/${projectId}`), {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          client_name: updateData.client_name,
+          fiscal_year: updateData.fiscal_year,
+          overall_materiality: updateData.overall_materiality,
+          status: updateData.status?.toLowerCase(),
+        }),
+      })
 
-      if (error) {
-        throw new Error(error.message)
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || `HTTP error: ${response.status}`)
       }
 
-      // Optimistically update local state
-      const currentProject = get().projects[projectId]
-      if (currentProject) {
-        set((state) => ({
-          projects: {
-            ...state.projects,
-            [projectId]: {
-              ...currentProject,
-              ...updateData,
-            },
-          },
-        }))
-      }
+      const responseData = await response.json()
+      const updatedProject = convertApiProjectToAuditProject(responseData.project)
+
+      set((state) => ({
+        projects: {
+          ...state.projects,
+          [projectId]: updatedProject,
+        },
+      }))
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to update project'
       set({ error: errorMessage })
@@ -167,16 +226,17 @@ const createProjectStore = (
     set({ error: null })
 
     try {
-      const { error } = await supabase
-        .from('audit_projects')
-        .delete()
-        .eq('id', projectId)
+      // Delete project via backend API
+      const response = await fetch(getApiUrl(`/api/projects/${projectId}`), {
+        method: 'DELETE',
+      })
 
-      if (error) {
-        throw new Error(error.message)
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || `HTTP error: ${response.status}`)
       }
 
-      // Optimistically update local state
+      // Update local state
       set((state) => {
         const newProjects = { ...state.projects }
         delete newProjects[projectId]

@@ -3,9 +3,9 @@
   "workflow_type": "feature",
   "workflow_rationale": "This is a comprehensive multi-phase feature implementation that adds new capabilities across both frontend and backend services. It involves creating new UI components, state management stores, API endpoints, LangGraph nodes, and agent enhancements - all constituting new feature development rather than refactoring or bug fixes.",
   "created_at": "2026-01-08T07:15:45.005Z",
-  "updated_at": "2026-01-09T02:01:04.996Z",
-  "status": "in_progress",
-  "planStatus": "in_progress",
+  "updated_at": "2026-01-09T12:43:31.663Z",
+  "status": "backlog",
+  "planStatus": "pending",
   "phases": [
     {
       "id": "phase-1-project-ui",
@@ -265,7 +265,7 @@
         },
         {
           "id": "FE-7.3",
-          "description": "Create Task Hierarchy Tree component for 3-level (High\u2192Mid\u2192Low) display",
+          "description": "Create Task Hierarchy Tree component for 3-level (High→Mid→Low) display",
           "service": "frontend",
           "files_to_modify": [],
           "files_to_create": [
@@ -286,13 +286,13 @@
             ]
           },
           "acceptance_criteria": [
-            "3-level hierarchy (High\u2192Mid\u2192Low)",
+            "3-level hierarchy (High→Mid→Low)",
             "Expand/collapse functionality",
             "Task status indicators",
             "Performance optimized for 100+ tasks"
           ],
           "status": "completed",
-          "notes": "Created TaskHierarchyTree.tsx component at frontend/src/app/components/tasks/TaskHierarchyTree.tsx. Features implemented:\n- 3-level hierarchy (High/EGA \u2192 Mid/Assertion \u2192 Low/Procedure) with visual distinction\n- Expand/collapse functionality with React state management and Expand All/Collapse All buttons\n- Status indicators with color-coded badges (Completed=green, In-Progress=blue, Review-Required=amber, Failed=red, Pending=gray)\n- Level indicators with icons (FolderTree=High, FileText=Mid, CheckSquare=Low)\n- Search and filter functionality (by task name/description, level, and status)\n- Task statistics summary cards showing totals, completion progress\n- Performance optimized with React.memo for recursive TaskNode component\n- Tree structure built from flat task data using parent_task_id from metadata\n- Integrated with useTaskStore and useProjectStore (using getSelectedProject selector)\n- Updated App.tsx to route /workspace/tasks to TaskHierarchyTree component\n- Legend section explaining level and status indicators\n- Accessibility: role=\"tree\", role=\"treeitem\", aria-expanded, aria-selected attributes\nCommitted as 5518669.",
+          "notes": "Created TaskHierarchyTree.tsx component at frontend/src/app/components/tasks/TaskHierarchyTree.tsx. Features implemented:\n- 3-level hierarchy (High/EGA → Mid/Assertion → Low/Procedure) with visual distinction\n- Expand/collapse functionality with React state management and Expand All/Collapse All buttons\n- Status indicators with color-coded badges (Completed=green, In-Progress=blue, Review-Required=amber, Failed=red, Pending=gray)\n- Level indicators with icons (FolderTree=High, FileText=Mid, CheckSquare=Low)\n- Search and filter functionality (by task name/description, level, and status)\n- Task statistics summary cards showing totals, completion progress\n- Performance optimized with React.memo for recursive TaskNode component\n- Tree structure built from flat task data using parent_task_id from metadata\n- Integrated with useTaskStore and useProjectStore (using getSelectedProject selector)\n- Updated App.tsx to route /workspace/tasks to TaskHierarchyTree component\n- Legend section explaining level and status indicators\n- Accessibility: role=\"tree\", role=\"treeitem\", aria-expanded, aria-selected attributes\nCommitted as 5518669.",
           "updated_at": "2026-01-08T08:11:10.299852+00:00"
         }
       ]
@@ -832,7 +832,7 @@
       "subtasks": [
         {
           "id": "INT-1",
-          "description": "Integration test: Project CRUD flow (frontend \u2194 backend \u2194 Supabase)",
+          "description": "Integration test: Project CRUD flow (frontend ↔ backend ↔ Supabase)",
           "all_services": true,
           "files_to_modify": [],
           "files_to_create": [
@@ -854,7 +854,7 @@
         },
         {
           "id": "INT-2",
-          "description": "Integration test: Agent streaming flow (frontend \u2194 backend SSE)",
+          "description": "Integration test: Agent streaming flow (frontend ↔ backend SSE)",
           "all_services": true,
           "files_to_modify": [],
           "files_to_create": [
@@ -876,7 +876,7 @@
         },
         {
           "id": "INT-3",
-          "description": "Integration test: HITL workflow (frontend \u2194 backend \u2194 LangGraph)",
+          "description": "Integration test: HITL workflow (frontend ↔ backend ↔ LangGraph)",
           "all_services": true,
           "files_to_modify": [],
           "files_to_create": [

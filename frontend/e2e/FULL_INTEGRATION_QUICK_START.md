@@ -21,7 +21,7 @@ ls frontend/node_modules
 npx playwright --version
 
 # Check ports are free
-lsof -ti:8000  # Should be empty (backend port)
+lsof -ti:8080  # Should be empty (backend port)
 lsof -ti:5173  # Should be empty (frontend port)
 ```
 
@@ -108,7 +108,7 @@ npm run test:e2e e2e/08-full-integration.spec.ts -g "Project Creation"
 ```
 🚀 Starting test suite: Full Integration E2E
 📋 Setting up servers...
-⏳ Waiting for Backend to become healthy at http://localhost:8000...
+⏳ Waiting for Backend to become healthy at http://localhost:8080...
 ✅ Backend is healthy (attempt 5/30)
 ⏳ Waiting for Frontend to become healthy at http://localhost:5173...
 ✅ Frontend is healthy (attempt 3/30)
@@ -253,7 +253,7 @@ test.afterAll(async () => {
 ### Health Checks
 
 ```typescript
-// Backend: GET http://localhost:8000/api/health
+// Backend: GET http://localhost:8080/api/health
 // Frontend: GET http://localhost:5173/
 
 // 30 retries, 1 second apart

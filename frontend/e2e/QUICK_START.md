@@ -19,7 +19,7 @@ python -m src.main
 
 **Verify backend is running**:
 ```bash
-curl http://localhost:8000/api/health
+curl http://localhost:8080/api/health
 # Expected: {"status": "healthy", ...}
 ```
 

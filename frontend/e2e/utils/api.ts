@@ -136,7 +136,8 @@ export async function waitForBackendReady(
   while (Date.now() - startTime < timeout) {
     try {
       const health = await checkHealth();
-      if (health.status === 'healthy' || health.status === 'ok') {
+      // Accept healthy, ok, or degraded (backend is running but some services may be unavailable)
+      if (health.status === 'healthy' || health.status === 'ok' || health.status === 'degraded') {
         return true;
       }
     } catch {

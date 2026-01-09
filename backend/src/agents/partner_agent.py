@@ -17,10 +17,17 @@ from dataclasses import dataclass
 import json
 import re
 import asyncio
+import logging
 import httpx
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from ..graph.state import AuditState
+
+# Import MCP tools for agent binding
+from ..tools.mcp_tools import WEB_RESEARCH_TOOLS
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -178,22 +185,62 @@ class PartnerAgent:
     """
     Partner Agent for AI Audit Platform.
 
+    The Partner agent acts as a senior audit partner responsible for:
+    1. Understanding client's business and industry
+    2. Assessing audit risk based on materiality
+    3. Designing high-level audit plan
+    4. Delegating execution to Manager agents
+
+    MCP Integration:
+    - Uses MCP tools (search_company_news, get_industry_insights) bound to LLM
+    - Enables intelligent research for audit planning and risk assessment
+    - Falls back to direct HTTP calls if MCP server is unavailable
+
+    Tool Bindings:
+    - search_company_news: Search for company-related news and risk indicators
+    - get_industry_insights: Get industry-specific audit guidance
+
     Attributes:
-        llm: GPT-5.2 model for strategic planning and risk assessment
+        llm: GPT model for strategic planning and risk assessment
+        llm_with_tools: LLM with MCP web research tools bound
         temperature: Low temperature (0.2) for consistent, professional output
     """
 
-    def __init__(self, temperature: float = 0.2):
+    def __init__(
+        self,
+        temperature: float = 0.2,
+        model_name: str = "gpt-4o-mini",
+        bind_tools: bool = True
+    ):
         """
-        Initialize Partner Agent with GPT-5.2.
+        Initialize Partner Agent with GPT model and MCP tools.
 
         Args:
             temperature: LLM temperature (default 0.2 for consistency)
+            model_name: GPT model to use (default: gpt-4o-mini)
+            bind_tools: Whether to bind MCP tools to LLM (default: True)
         """
         self.llm = ChatOpenAI(
-            model="gpt-4o-mini",
+            model=model_name,
             temperature=temperature
         )
+        self.agent_name = "Partner_Agent"
+
+        # Bind MCP Web Research tools for tool-calling capability
+        if bind_tools:
+            self.llm_with_tools = self.llm.bind_tools(WEB_RESEARCH_TOOLS)
+            self._tools_by_name = {tool.name: tool for tool in WEB_RESEARCH_TOOLS}
+            logger.info(
+                f"{self.agent_name} initialized with model {model_name} "
+                f"and {len(WEB_RESEARCH_TOOLS)} MCP tools bound"
+            )
+        else:
+            self.llm_with_tools = None
+            self._tools_by_name = {}
+            logger.info(
+                f"{self.agent_name} initialized with model {model_name} "
+                "(tools not bound)"
+            )
 
     async def plan_audit(self, state: AuditState) -> Dict[str, Any]:
         """
@@ -488,7 +535,8 @@ Provide your plan in the JSON format specified in the system prompt.
         state: AuditState,
         rag_base_url: str = "http://localhost:8001",
         web_base_url: str = "http://localhost:8002",
-        timeout: float = 30.0
+        timeout: float = 30.0,
+        use_tools: bool = True
     ) -> DeepResearchResult:
         """
         Perform deep research on a topic using RAG and Web integration.
@@ -499,12 +547,17 @@ Provide your plan in the JSON format specified in the system prompt.
         2. Web research for industry practices and recent developments
         3. LLM-based synthesis of all findings
 
+        Strategy:
+        - If tools bound and use_tools=True: Use LLM with tool-calling
+        - Otherwise: Fall back to direct HTTP calls
+
         Args:
             topic: Research topic (e.g., "revenue recognition timing")
             state: Current AuditState for context
             rag_base_url: MCP RAG server URL (default: localhost:8001)
             web_base_url: MCP Web Research server URL (default: localhost:8002)
             timeout: Request timeout in seconds (default: 30s)
+            use_tools: Whether to use bound MCP tools (default: True)
 
         Returns:
             DeepResearchResult containing synthesized findings from all sources
@@ -519,18 +572,25 @@ Provide your plan in the JSON format specified in the system prompt.
         # Build context from state
         client_context = self._build_research_context(topic, state)
 
-        # Perform parallel research from multiple sources
-        rag_results, web_results = await asyncio.gather(
-            self._search_rag(topic, client_context, rag_base_url, timeout),
-            self._search_web(topic, client_context, web_base_url, timeout),
-            return_exceptions=True
-        )
+        # Try tool-calling approach if tools are bound and enabled
+        if use_tools and self.llm_with_tools and self._tools_by_name:
+            web_results = await self._search_web_with_tools(
+                topic, state, client_context
+            )
+        else:
+            # Fall back to direct HTTP calls
+            web_results = await self._search_web(
+                topic, client_context, web_base_url, timeout
+            )
+            if isinstance(web_results, Exception):
+                web_results = self._get_fallback_web_results(topic)
 
-        # Handle exceptions from parallel execution
+        # RAG search (always use direct client for now)
+        rag_results = await self._search_rag(
+            topic, client_context, rag_base_url, timeout
+        )
         if isinstance(rag_results, Exception):
             rag_results = self._get_fallback_rag_results(topic)
-        if isinstance(web_results, Exception):
-            web_results = self._get_fallback_web_results(topic)
 
         # Synthesize results using LLM
         synthesis_result = await self._synthesize_research(
@@ -553,9 +613,120 @@ Provide your plan in the JSON format specified in the system prompt.
                     "regulatory_requirements", []
                 ),
                 "audit_risks": synthesis_result.get("audit_risks", []),
-                "recommendations": synthesis_result.get("recommendations", [])
+                "recommendations": synthesis_result.get("recommendations", []),
+                "method": "tool_calling" if (
+                    use_tools and self.llm_with_tools
+                ) else "direct_http"
             }
         )
+
+    async def _search_web_with_tools(
+        self,
+        topic: str,
+        state: AuditState,
+        context: str
+    ) -> List[ResearchSource]:
+        """
+        Search web using LLM with bound MCP tools.
+
+        The LLM decides which tools to call (search_company_news,
+        get_industry_insights) based on the research topic.
+
+        Args:
+            topic: Research topic
+            state: Current AuditState for context
+            context: Client context string
+
+        Returns:
+            List of ResearchSource results from web search
+        """
+        try:
+            client_name = state.get("client_name", "Unknown")
+
+            # Build prompt for LLM to decide tool usage
+            system_prompt = (
+                "You are a senior audit partner conducting research. "
+                "Use the available tools to search for relevant information:\n"
+                "- search_company_news: For company-specific news and developments\n"
+                "- get_industry_insights: For industry best practices and risks\n\n"
+                "Based on the research topic, call the appropriate tools."
+            )
+
+            user_prompt = (
+                f"Research the following for audit planning:\n"
+                f"- Topic: {topic}\n"
+                f"- Client: {client_name}\n"
+                f"- Context: {context}\n\n"
+                f"Use the appropriate research tools to gather relevant information."
+            )
+
+            # Invoke LLM with tools
+            response = await self.llm_with_tools.ainvoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_prompt)
+            ])
+
+            web_results: List[ResearchSource] = []
+
+            # Process tool calls if any
+            if hasattr(response, 'tool_calls') and response.tool_calls:
+                for tool_call in response.tool_calls:
+                    tool_name = tool_call.get("name")
+                    tool_args = tool_call.get("args", {})
+
+                    logger.info(
+                        f"[{self.agent_name}] LLM requested tool: {tool_name}"
+                    )
+
+                    if tool_name in self._tools_by_name:
+                        tool = self._tools_by_name[tool_name]
+                        result_str = await tool.ainvoke(tool_args)
+                        result = json.loads(result_str)
+
+                        if result.get("status") == "success":
+                            # Convert tool results to ResearchSource
+                            if tool_name == "search_company_news":
+                                for r in result.get("results", []):
+                                    web_results.append(ResearchSource(
+                                        source_type="web",
+                                        title=r.get("title", ""),
+                                        content=r.get("snippet", ""),
+                                        url=r.get("url"),
+                                        relevance_score=0.7,
+                                        metadata={
+                                            "tool": tool_name,
+                                            "source": r.get("source", "web"),
+                                            "date": r.get("date")
+                                        }
+                                    ))
+                            elif tool_name == "get_industry_insights":
+                                for r in result.get("insights", []):
+                                    web_results.append(ResearchSource(
+                                        source_type="web",
+                                        title=r.get("title", "Industry Insight"),
+                                        content=r.get("content", ""),
+                                        url=r.get("url"),
+                                        relevance_score=r.get("relevance", 0.6),
+                                        metadata={
+                                            "tool": tool_name,
+                                            "industry": result.get("industry"),
+                                            "topic": result.get("topic")
+                                        }
+                                    ))
+
+            if not web_results:
+                logger.info(
+                    f"[{self.agent_name}] No tool results, using fallback"
+                )
+                return self._get_fallback_web_results(topic)
+
+            return web_results
+
+        except Exception as e:
+            logger.error(
+                f"[{self.agent_name}] Tool-based web search failed: {e}"
+            )
+            return self._get_fallback_web_results(topic)
 
     def _build_research_context(self, topic: str, state: AuditState) -> str:
         """

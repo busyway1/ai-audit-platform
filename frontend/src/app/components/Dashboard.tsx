@@ -1,17 +1,33 @@
 import { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Activity, AlertTriangle, CheckCircle2, Clock, Network, Sparkles } from 'lucide-react';
-import { agents, tasks, riskHeatmap } from '../data/mockData';
+import { Activity, AlertTriangle, CheckCircle2, Clock, Network, Sparkles, RefreshCw, Wifi, WifiOff } from 'lucide-react';
+import { useDashboard } from '../hooks/useDashboard';
 import type { RiskLevel } from '../types/audit';
 import { AskAIDrawer } from './workspace/AskAIDrawer';
 
 export function Dashboard() {
   const [isAskAIOpen, setIsAskAIOpen] = useState(false);
-  const totalTasks = tasks.length;
-  const completedTasks = tasks.filter(t => t.status === 'completed').length;
-  const inProgressTasks = tasks.filter(t => t.status === 'in-progress').length;
-  const highRiskIssues = tasks.filter(t => t.riskLevel === 'critical' || t.riskLevel === 'high').length;
-  const overallProgress = Math.round((completedTasks / totalTasks) * 100);
+
+  // Use the dashboard hook with 60 second auto-refresh
+  const {
+    data,
+    isLoading,
+    isUsingMockData,
+    refresh,
+    lastUpdated,
+  } = useDashboard({
+    refreshInterval: 60000, // Auto-refresh every 60 seconds
+  });
+
+  // Extract data with defaults for loading state
+  const tasks = data?.tasks ?? [];
+  const agents = data?.agents ?? [];
+  const riskHeatmap = data?.riskHeatmap ?? [];
+  const totalTasks = data?.totalTasks ?? 0;
+  const completedTasks = data?.completedTasks ?? 0;
+  const inProgressTasks = data?.inProgressTasks ?? 0;
+  const highRiskIssues = data?.highRiskIssues ?? 0;
+  const overallProgress = data?.overallProgress ?? 0;
 
   const getRiskColor = (level: RiskLevel) => {
     switch (level) {
@@ -36,12 +52,52 @@ export function Dashboard() {
     { phase: 'Completion', count: tasks.filter(t => t.phase === 'completion').length }
   ];
 
+  // Format last updated time
+  const formatLastUpdated = () => {
+    if (!lastUpdated) return '';
+    return lastUpdated.toLocaleTimeString();
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl mb-2">Audit Command Center</h1>
-        <p className="text-gray-600">ABC Corporation - FY 2025 Audit</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl mb-2">Audit Command Center</h1>
+          <p className="text-gray-600">ABC Corporation - FY 2025 Audit</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {/* Connection Status */}
+          <div className="flex items-center gap-2 text-sm">
+            {isUsingMockData ? (
+              <>
+                <WifiOff className="size-4 text-amber-500" />
+                <span className="text-amber-600">Demo Mode</span>
+              </>
+            ) : (
+              <>
+                <Wifi className="size-4 text-green-500" />
+                <span className="text-green-600">Live</span>
+              </>
+            )}
+          </div>
+          {/* Last Updated */}
+          {lastUpdated && (
+            <span className="text-xs text-gray-400">
+              Updated: {formatLastUpdated()}
+            </span>
+          )}
+          {/* Refresh Button */}
+          <button
+            onClick={() => refresh()}
+            disabled={isLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50"
+            title="Refresh dashboard data"
+          >
+            <RefreshCw className={`size-4 ${isLoading ? 'animate-spin' : ''}`} />
+            {isLoading ? 'Loading...' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       {/* Key Metrics */}

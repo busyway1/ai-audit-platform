@@ -54,6 +54,8 @@ export const getApiUrl = (path: string): string => {
  */
 export const API_ENDPOINTS = {
   health: '/api/health',
+  projects: '/api/projects',
   projectStart: '/api/projects/start',
   taskApprove: '/api/tasks/approve',
+  dashboardMetrics: '/api/dashboard/metrics',
 } as const;

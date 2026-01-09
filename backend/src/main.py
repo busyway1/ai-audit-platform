@@ -131,6 +131,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info(f"  - SUPABASE_URL: {os.getenv('SUPABASE_URL', 'NOT SET')}")
         logger.info(f"  - SUPABASE_SERVICE_KEY: {'***' if os.getenv('SUPABASE_SERVICE_KEY') else 'NOT SET'}")
         logger.info(f"  - POSTGRES_CONNECTION_STRING: {'***' if os.getenv('POSTGRES_CONNECTION_STRING') else 'NOT SET'}")
+        logger.info(f"  - OPENAI_API_KEY: {'***' if os.getenv('OPENAI_API_KEY') else 'NOT SET'}")
         logger.info(f"  - ANTHROPIC_API_KEY: {'***' if os.getenv('ANTHROPIC_API_KEY') else 'NOT SET'}")
 
         logger.info("=" * 80)
@@ -219,7 +220,7 @@ async def root():
         Basic service information and status
 
     Usage:
-        curl http://localhost:8000/
+        curl http://localhost:8080/
     """
     return {
         "service": "AI Audit Platform API",
@@ -253,7 +254,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "src.main:app",
         host="127.0.0.1",
-        port=8000,
+        port=8080,
         reload=True,  # Auto-reload on code changes
         log_level="info"
     )

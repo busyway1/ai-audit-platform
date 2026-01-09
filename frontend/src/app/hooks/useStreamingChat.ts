@@ -588,6 +588,7 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
       eventSourceRef.current = eventSource
 
       eventSource.onopen = () => {
+        console.log('[SSE] Connection opened to:', url.toString())
         if (isUnmountedRef.current) {
           eventSource.close()
           return
@@ -599,9 +600,71 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
         setConnectionError(null)
       }
 
-      eventSource.onmessage = handleSSEEvent
+      // Handle named "message" events from backend
+      // Backend sends: event: message, data: {id, agent_role, content, timestamp}
+      eventSource.addEventListener('message', (event: MessageEvent) => {
+        if (isUnmountedRef.current) return
 
-      eventSource.onerror = () => {
+        try {
+          const data = JSON.parse(event.data)
+          console.log('[SSE] Received message event:', data)
+
+          // Backend format: {id, agent_role, content, timestamp}
+          // Map backend agent_role to frontend sender
+          const agentRole = data.agent_role
+
+          // Skip user messages (we already added them locally)
+          if (agentRole === 'user') {
+            console.log('[SSE] Skipping user message (already added locally)')
+            return
+          }
+
+          // For AI responses (partner, manager, system, etc.), update the placeholder AI message
+          if (currentAiMessageIdRef.current && data.content) {
+            console.log('[SSE] Updating AI message:', currentAiMessageIdRef.current, 'with content:', data.content.substring(0, 100))
+            updateMessage(currentAiMessageIdRef.current, {
+              content: data.content,
+              streaming: false, // Message is complete when received from polling
+            })
+            // Reset the ref since this message is now complete
+            // If backend sends more AI messages, we'll need a new placeholder
+          } else {
+            console.log('[SSE] No AI message to update. Ref:', currentAiMessageIdRef.current, 'Content:', !!data.content)
+          }
+        } catch (error) {
+          // JSON parse error - log for debugging
+          console.error('[SSE] Failed to parse message:', error, event.data)
+        }
+      })
+
+      // Handle heartbeat events
+      eventSource.addEventListener('heartbeat', () => {
+        // Heartbeat event - connection is alive, no action needed
+      })
+
+      // Handle error events from backend
+      eventSource.addEventListener('error', (event: MessageEvent) => {
+        if (isUnmountedRef.current) return
+
+        try {
+          const data = JSON.parse(event.data)
+          setConnectionError(data.error || 'Unknown error occurred')
+          if (currentAiMessageIdRef.current) {
+            updateMessage(currentAiMessageIdRef.current, {
+              content: data.error || 'An error occurred while processing your request.',
+              streaming: false,
+            })
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      })
+
+      // Note: We use addEventListener for named events, not onmessage
+      // The backend sends named events like 'message', 'heartbeat', 'error'
+
+      eventSource.onerror = (error) => {
+        console.error('[SSE] Connection error:', error)
         if (isUnmountedRef.current) {
           eventSource.close()
           return
@@ -612,9 +675,11 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
 
         // Only attempt reconnect if we were streaming (use ref to avoid stale closure)
         if (isStreamingRef.current) {
+          console.log('[SSE] Scheduling reconnect...')
           setConnectionStatus('connecting')
           scheduleReconnect(taskId, content)
         } else {
+          console.log('[SSE] Not streaming, setting error status')
           setConnectionStatus('error')
           setConnectionError('Connection failed')
         }
@@ -625,7 +690,7 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
       isStreamingRef.current = false
       setIsStreaming(false)
     }
-  }, [baseUrl, cleanup, handleSSEEvent, scheduleReconnect])
+  }, [baseUrl, cleanup, handleSSEEvent, scheduleReconnect, updateMessage, setConnectionError])
 
   /**
    * Send a message (mock mode)

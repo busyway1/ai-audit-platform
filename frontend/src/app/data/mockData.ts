@@ -1,8 +1,8 @@
-import { 
-  Task, 
-  Agent, 
-  AgentMessage, 
-  FinancialStatementItem, 
+import {
+  Task,
+  Agent,
+  AgentMessage,
+  FinancialStatementItem,
   RiskHeatmapItem,
   EngagementMessage,
   Document,
@@ -11,6 +11,7 @@ import {
   Issue,
   AgentTool
 } from '../types/audit';
+import type { HITLRequest } from '../types/supabase';
 
 export const agents: Agent[] = [
   {
@@ -993,5 +994,94 @@ export const agentTools: AgentTool[] = [
     usageCount: 8,
     lastUsed: '2026-01-05T17:00:00Z',
     permissions: ['analyze-data', 'compare-datasets']
+  }
+];
+
+// HITL (Human-in-the-Loop) mock requests
+export const hitlRequests: HITLRequest[] = [
+  {
+    id: 'hitl-001',
+    task_id: 'task-001',
+    project_id: 'project-001',
+    request_type: 'approval',
+    urgency_score: 95,
+    title: '중요한 수익 조정 승인 필요',
+    context: '분기 말 수익 인식에 대한 회계처리 변경 요청',
+    options: JSON.stringify(['approve', 'reject', 'request_more_info']),
+    status: 'pending',
+    response: null,
+    responded_by: null,
+    responded_at: null,
+    metadata: {},
+    created_at: '2026-01-14T10:00:00Z',
+    updated_at: '2026-01-14T10:00:00Z'
+  },
+  {
+    id: 'hitl-002',
+    task_id: 'task-002',
+    project_id: 'project-001',
+    request_type: 'clarification',
+    urgency_score: 75,
+    title: '재고 실사 차이 검토',
+    context: '장부 재고와 실사 결과 간 5% 이상 차이 발생',
+    options: JSON.stringify(['approve_adjustment', 'request_recount', 'escalate']),
+    status: 'pending',
+    response: null,
+    responded_by: null,
+    responded_at: null,
+    metadata: {},
+    created_at: '2026-01-14T09:30:00Z',
+    updated_at: '2026-01-14T09:30:00Z'
+  },
+  {
+    id: 'hitl-003',
+    task_id: 'task-003',
+    project_id: 'project-001',
+    request_type: 'escalation',
+    urgency_score: 88,
+    title: '관계사 거래 검토 요청',
+    context: '특수관계자와의 대량 거래 발견, 독립적 검토 필요',
+    options: JSON.stringify(['approve', 'reject', 'request_senior_review']),
+    status: 'pending',
+    response: null,
+    responded_by: null,
+    responded_at: null,
+    metadata: {},
+    created_at: '2026-01-14T08:45:00Z',
+    updated_at: '2026-01-14T08:45:00Z'
+  },
+  {
+    id: 'hitl-004',
+    task_id: 'task-004',
+    project_id: 'project-001',
+    request_type: 'review',
+    urgency_score: 60,
+    title: '충당금 설정 적정성 검토',
+    context: '매출채권 대손충당금 설정 방법론 변경 검토',
+    options: JSON.stringify(['approve', 'reject', 'modify']),
+    status: 'approved',
+    response: '검토 완료, 적절한 방법론으로 판단됨',
+    responded_by: 'partner-001',
+    responded_at: '2026-01-13T16:00:00Z',
+    metadata: {},
+    created_at: '2026-01-13T14:00:00Z',
+    updated_at: '2026-01-13T16:00:00Z'
+  },
+  {
+    id: 'hitl-005',
+    task_id: 'task-005',
+    project_id: 'project-001',
+    request_type: 'approval',
+    urgency_score: 45,
+    title: '감가상각 방법 변경 검토',
+    context: '건물에 대한 감가상각 방법을 정액법에서 정률법으로 변경 요청',
+    options: JSON.stringify(['approve', 'reject', 'request_justification']),
+    status: 'rejected',
+    response: '정당한 사유 불충분, 기존 방법 유지 권고',
+    responded_by: 'manager-001',
+    responded_at: '2026-01-12T11:30:00Z',
+    metadata: {},
+    created_at: '2026-01-12T09:00:00Z',
+    updated_at: '2026-01-12T11:30:00Z'
   }
 ];

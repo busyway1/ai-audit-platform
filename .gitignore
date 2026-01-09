@@ -69,3 +69,5 @@ worktrees/
 
 # Auto Claude data directory
 .auto-claude/
+.venv/
+backend/.venv/

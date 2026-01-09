@@ -1,12 +1,19 @@
-# Native Audit Tools
+# Audit Tools
 
-This directory contains custom LangChain tools for the AI Audit Platform, implementing core audit functionality as native tools that can be used by LangGraph agents.
+This directory contains LangChain tools for the AI Audit Platform, including both native audit tools and MCP (Model Context Protocol) tool wrappers that enable LangGraph agents to interact with MCP servers.
 
 ## Overview
 
-The native tools provide essential audit capabilities:
+The tools provide essential audit capabilities:
+
+### Native Tools
 - **Financial Analyzer**: Validates consistency between financial statements and trial balances
 - **Workpaper Generator**: Creates standardized audit workpapers with proper formatting
+
+### MCP Tools (via mcp_tools.py)
+- **RAG Tools**: Search K-IFRS/K-GAAS standards via mcp-rag server
+- **Excel Tools**: Parse and analyze Excel workpapers via mcp-excel-processor server
+- **Web Research Tools**: Search company news and industry insights via mcp-web-research server
 
 ## Files
 
@@ -26,9 +33,17 @@ The native tools provide essential audit capabilities:
    - Provides sign-off section for review and approval
    - Bonus: `workpaper_validator` tool for quality control
 
-3. **`__init__.py`** (4 lines)
-   - Exports tools for easy import
-   - Makes tools available as package
+3. **`mcp_tools.py`** (NEW - MCP Tool Wrappers)
+   - **search_standards**: Hybrid search for K-IFRS/K-GAAS standards
+   - **get_paragraph_by_id**: Direct paragraph lookup for multi-hop retrieval
+   - **read_excel_structure**: Analyze Excel file structure
+   - **analyze_workpaper_structure**: Deep audit analysis of workpapers
+   - **search_company_news**: Search company-related news and risk indicators
+   - **get_industry_insights**: Get industry-specific audit guidance
+
+4. **`__init__.py`**
+   - Exports all tools for easy import
+   - Provides tool collections: RAG_TOOLS, EXCEL_TOOLS, WEB_RESEARCH_TOOLS, ALL_MCP_TOOLS
 
 ### Testing
 
@@ -224,13 +239,15 @@ All tests completed!
 
 These tools are designed to be used with LangGraph agents:
 
+### Native Tools with create_react_agent
+
 ```python
 from langgraph.prebuilt import create_react_agent
 from langchain_openai import ChatOpenAI
 from tools import financial_analyzer, workpaper_generator
 
 # Create agent with tools
-llm = ChatOpenAI(model="gpt-5.2")
+llm = ChatOpenAI(model="gpt-4o-mini")
 agent = create_react_agent(
     llm,
     tools=[financial_analyzer, workpaper_generator]
@@ -244,6 +261,57 @@ result = agent.invoke({
     }]
 })
 ```
+
+### MCP Tools with bind_tools
+
+The MCP tools are designed to be bound to LLM instances for tool-calling:
+
+```python
+from langchain_openai import ChatOpenAI
+from tools import RAG_TOOLS, EXCEL_TOOLS, WEB_RESEARCH_TOOLS
+
+# Bind RAG tools to LLM for standard retrieval
+llm = ChatOpenAI(model="gpt-4o-mini")
+llm_with_rag = llm.bind_tools(RAG_TOOLS)
+
+# Invoke with tool-calling
+response = await llm_with_rag.ainvoke([
+    SystemMessage(content="Search for relevant K-IFRS standards"),
+    HumanMessage(content="Find standards related to revenue recognition")
+])
+
+# Process tool calls
+if response.tool_calls:
+    for tool_call in response.tool_calls:
+        # Execute the tool
+        result = await RAG_TOOLS[0].ainvoke(tool_call["args"])
+```
+
+### Agent Classes with Built-in Tool Binding
+
+The staff agents automatically bind appropriate MCP tools:
+
+```python
+from src.agents.staff_agents import StandardRetrieverAgent, ExcelParserAgent
+from src.agents.partner_agent import PartnerAgent
+
+# Agents auto-bind tools on initialization
+standard_agent = StandardRetrieverAgent(bind_tools=True)  # RAG_TOOLS
+excel_agent = ExcelParserAgent(bind_tools=True)           # EXCEL_TOOLS
+partner_agent = PartnerAgent(bind_tools=True)             # WEB_RESEARCH_TOOLS
+
+# Run agent with tool-calling
+result = await standard_agent.run(state)
+# Agent uses search_standards tool via LLM tool-calling
+```
+
+### Tool Bindings Reference
+
+| Agent | Tools Bound | MCP Server |
+|-------|-------------|------------|
+| StandardRetrieverAgent | search_standards, get_paragraph_by_id | mcp-rag (8001) |
+| ExcelParserAgent | read_excel_structure, analyze_workpaper_structure | mcp-excel-processor (8003) |
+| PartnerAgent | search_company_news, get_industry_insights | mcp-web-research (8002) |
 
 ## Future Enhancements
 

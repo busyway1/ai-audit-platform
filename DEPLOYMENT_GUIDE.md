@@ -105,7 +105,7 @@ cd ..
 \`\`\`bash
 cd backend
 source venv/bin/activate
-python -m uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+python -m uvicorn src.main:app --reload --host 0.0.0.0 --port 8080
 \`\`\`
 
 **Terminal 2 - Frontend:**
@@ -118,14 +118,14 @@ npm run dev
 
 \`\`\`bash
 # Check backend health
-curl http://localhost:8000/api/health
+curl http://localhost:8080/api/health
 # Expected: {"status": "healthy", "timestamp": "..."}
 
 # Check frontend
 curl -I http://localhost:5173/
 
 # Check database
-curl -X GET http://localhost:8000/api/health/db
+curl -X GET http://localhost:8080/api/health/db
 
 echo "✅ All systems operational!"
 \`\`\`

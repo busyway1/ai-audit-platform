@@ -192,7 +192,7 @@ export interface AgentTool {
 }
 
 // Chat-First Interface Types
-export type ChatSender = 'user' | 'ai' | 'system';
+export type ChatSender = 'user' | 'ai' | 'system' | 'partner' | 'manager' | 'staff';
 
 export interface ChatMessage {
   id: string;

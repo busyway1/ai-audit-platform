@@ -18,12 +18,16 @@ Reference:
 
 from typing import Dict, Any, Optional, List
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage, BaseMessage
+from langchain_core.messages import SystemMessage, HumanMessage, BaseMessage, AIMessage
+import json
 import logging
 from datetime import datetime
 
 # Import TaskState for type hints (compatible with Dict[str, Any])
 from ..graph.state import TaskState
+
+# Import MCP tools for agent binding
+from ..tools.mcp_tools import RAG_TOOLS, EXCEL_TOOLS
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -60,21 +64,42 @@ class ExcelParserAgent:
     - Fill TaskState.raw_data field for downstream Staff agents
 
     MCP Integration:
-    - Uses MCPExcelClient for actual Excel file parsing
+    - Uses MCP tools (read_excel_structure, analyze_workpaper_structure) bound to LLM
+    - Enables intelligent workpaper analysis with anomaly detection
     - Falls back to mock data if MCP server is unavailable
+
+    Tool Bindings:
+    - read_excel_structure: Analyze Excel file structure
+    - analyze_workpaper_structure: Deep audit analysis of workpapers
     """
 
-    def __init__(self, model_name: str = "gpt-4o-mini"):
+    def __init__(self, model_name: str = "gpt-4o-mini", bind_tools: bool = True):
         """
         Initialize Excel Parser agent.
 
         Args:
             model_name: GPT model to use for data validation and anomaly detection
+            bind_tools: Whether to bind MCP tools to LLM (default: True)
         """
         self.llm = ChatOpenAI(model=model_name)
         self.agent_name = "Staff_Excel_Parser"
         self._mcp_client: Optional[Any] = None
-        logger.info(f"{self.agent_name} initialized with model {model_name}")
+
+        # Bind MCP Excel tools for tool-calling capability
+        if bind_tools:
+            self.llm_with_tools = self.llm.bind_tools(EXCEL_TOOLS)
+            self._tools_by_name = {tool.name: tool for tool in EXCEL_TOOLS}
+            logger.info(
+                f"{self.agent_name} initialized with model {model_name} "
+                f"and {len(EXCEL_TOOLS)} MCP tools bound"
+            )
+        else:
+            self.llm_with_tools = None
+            self._tools_by_name = {}
+            logger.info(
+                f"{self.agent_name} initialized with model {model_name} "
+                "(tools not bound)"
+            )
 
     async def _get_mcp_client(self):
         """Get or create MCP Excel client."""
@@ -305,29 +330,50 @@ class StandardRetrieverAgent:
     - Fill TaskState.standards field with relevant regulations
 
     MCP Integration:
-    - Uses MCPRagClient for hybrid search (BM25 + Vector) with RRF fusion
+    - Uses MCP tools (search_standards, get_paragraph_by_id) bound to LLM
+    - Hybrid search (BM25 + Vector) with RRF fusion via mcp-rag server
     - Wide Recall strategy: Top-30 for recall, Top-10 for LLM context
+
+    Tool Bindings:
+    - search_standards: Hybrid search for K-IFRS/K-GAAS standards
+    - get_paragraph_by_id: Direct paragraph lookup for multi-hop retrieval
     """
 
-    def __init__(self, model_name: str = "gpt-4o-mini"):
+    def __init__(self, model_name: str = "gpt-4o-mini", bind_tools: bool = True):
         """
         Initialize Standard Retriever agent.
 
         Args:
             model_name: GPT model to use for query refinement and relevance scoring
+            bind_tools: Whether to bind MCP tools to LLM (default: True)
         """
         self.llm = ChatOpenAI(model=model_name)
         self.agent_name = "Staff_Standard_Retriever"
-        logger.info(f"{self.agent_name} initialized with model {model_name}")
+
+        # Bind MCP RAG tools for tool-calling capability
+        if bind_tools:
+            self.llm_with_tools = self.llm.bind_tools(RAG_TOOLS)
+            self._tools_by_name = {tool.name: tool for tool in RAG_TOOLS}
+            logger.info(
+                f"{self.agent_name} initialized with model {model_name} "
+                f"and {len(RAG_TOOLS)} MCP tools bound"
+            )
+        else:
+            self.llm_with_tools = None
+            self._tools_by_name = {}
+            logger.info(
+                f"{self.agent_name} initialized with model {model_name} "
+                "(tools not bound)"
+            )
 
     async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Retrieve relevant audit standards from MCP RAG server.
+        Retrieve relevant audit standards using MCP tools bound to LLM.
 
-        Uses hybrid search (BM25 + Vector) with RRF fusion:
-        1. Query MCP RAG server with category-specific query
-        2. Retrieve Top-30 candidates for Wide Recall
-        3. Format Top-10 for LLM context
+        Strategy:
+        1. If tools are bound: Use LLM with tool-calling to intelligently search
+        2. If tools unavailable: Fall back to direct MCP client calls
+        3. Format Top-10 results for LLM context
 
         Args:
             state: Current TaskState containing category, raw_data, etc.
@@ -338,8 +384,6 @@ class StandardRetrieverAgent:
             - search_metadata: Metadata from MCP search for debugging/monitoring
             - messages: Log message about standards retrieved
         """
-        from ..services.mcp_client import MCPRagClient, MCPRagClientError
-
         task_id = state.get("task_id", "UNKNOWN")
         category = state.get("category", "Sales")
         raw_data = state.get("raw_data", {})
@@ -351,61 +395,16 @@ class StandardRetrieverAgent:
         standards: List[str] = []
         search_metadata: Dict[str, Any] = {}
 
-        try:
-            mcp_client = MCPRagClient()
-
-            # 1. Hybrid search (Top-30 for Wide Recall)
-            search_result = await mcp_client.search_standards(
-                query_text=f"{category} 회계처리 기준",
-                top_k=30,
-                mode="hybrid"
+        # Try tool-calling approach if tools are bound
+        if self.llm_with_tools and self._tools_by_name:
+            standards, search_metadata = await self._run_with_tools(
+                category, raw_data
             )
-
-            if search_result.get("status") == "success":
-                results = search_result["data"]["results"]
-                search_metadata = search_result.get("data", {}).get("metadata", {})
-
-                # Format Top-10 for LLM context
-                for r in results[:10]:
-                    standard_id = r.get("standard_id", "Unknown")
-                    paragraph_no = r.get("paragraph_no", "")
-                    content = r.get("content", "")
-                    title = r.get("title", "")
-
-                    # Truncate content for context window efficiency
-                    content_preview = (
-                        content[:200] + "..." if len(content) > 200 else content
-                    )
-
-                    formatted = f"{standard_id} {paragraph_no}"
-                    if title:
-                        formatted += f" ({title})"
-                    formatted += f": {content_preview}"
-
-                    standards.append(formatted)
-
-                logger.info(
-                    f"[{self.agent_name}] MCP search successful: "
-                    f"{len(results)} candidates, {len(standards)} formatted for context. "
-                    f"Duration: {search_metadata.get('duration_ms', 'N/A')}ms"
-                )
-            else:
-                error_msg = search_result.get("message", "Unknown error")
-                logger.warning(
-                    f"[{self.agent_name}] MCP search returned non-success status: "
-                    f"{error_msg}"
-                )
-                search_metadata = {"error": error_msg}
-
-        except MCPRagClientError as e:
-            logger.error(f"[{self.agent_name}] MCP RAG client error: {e}")
-            search_metadata = {"error": str(e), "error_type": "MCPRagClientError"}
-
-        except Exception as e:
-            logger.error(
-                f"[{self.agent_name}] Unexpected error during MCP search: {e}"
+        else:
+            # Fallback to direct MCP client
+            standards, search_metadata = await self._run_with_direct_client(
+                category
             )
-            search_metadata = {"error": str(e), "error_type": type(e).__name__}
 
         # Log final result
         if standards:
@@ -442,6 +441,200 @@ class StandardRetrieverAgent:
                 )
             ]
         }
+
+    async def _run_with_tools(
+        self,
+        category: str,
+        raw_data: Dict[str, Any]
+    ) -> tuple[List[str], Dict[str, Any]]:
+        """
+        Execute standard retrieval using LLM with bound MCP tools.
+
+        The LLM decides which tools to call based on the context.
+        This enables intelligent multi-hop retrieval when needed.
+
+        Args:
+            category: Account category for search context
+            raw_data: Parsed financial data for context
+
+        Returns:
+            Tuple of (standards list, search metadata)
+        """
+        standards: List[str] = []
+        search_metadata: Dict[str, Any] = {"method": "tool_calling"}
+
+        try:
+            # Build prompt for LLM to decide tool usage
+            system_prompt = (
+                "You are an accounting standards expert. Use the available tools to "
+                "search for relevant K-IFRS and K-GAAS audit standards based on the "
+                "account category. Call search_standards with appropriate queries. "
+                "For complex topics, you may need to call get_paragraph_by_id for "
+                "multi-hop retrieval of related paragraphs."
+            )
+
+            user_prompt = (
+                f"Search for relevant audit standards for the following context:\n"
+                f"- Account Category: {category}\n"
+                f"- Audit Focus: {category} 회계처리 기준 및 감사절차\n"
+                f"- Transaction Count: {raw_data.get('transaction_count', 'N/A')}\n"
+                f"- Total Amount: {raw_data.get('total_sales', 'N/A')}\n\n"
+                f"Use the search_standards tool to find relevant K-IFRS/K-GAAS standards."
+            )
+
+            # Invoke LLM with tools
+            response = await self.llm_with_tools.ainvoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_prompt)
+            ])
+
+            # Process tool calls if any
+            if hasattr(response, 'tool_calls') and response.tool_calls:
+                for tool_call in response.tool_calls:
+                    tool_name = tool_call.get("name")
+                    tool_args = tool_call.get("args", {})
+
+                    logger.info(
+                        f"[{self.agent_name}] LLM requested tool: {tool_name}"
+                    )
+
+                    if tool_name in self._tools_by_name:
+                        tool = self._tools_by_name[tool_name]
+                        # Execute tool asynchronously
+                        result_str = await tool.ainvoke(tool_args)
+                        result = json.loads(result_str)
+
+                        if result.get("status") == "success":
+                            # Extract standards from search results
+                            for r in result.get("results", [])[:10]:
+                                standard_id = r.get("standard_id", "Unknown")
+                                paragraph_no = r.get("paragraph_no", "")
+                                content = r.get("content", "")
+                                title = r.get("title", "")
+
+                                content_preview = (
+                                    content[:200] + "..."
+                                    if len(content) > 200 else content
+                                )
+
+                                formatted = f"{standard_id} {paragraph_no}"
+                                if title:
+                                    formatted += f" ({title})"
+                                formatted += f": {content_preview}"
+
+                                standards.append(formatted)
+
+                            search_metadata.update(result.get("metadata", {}))
+                            search_metadata["tool_used"] = tool_name
+                            search_metadata["results_count"] = result.get(
+                                "results_count", len(standards)
+                            )
+                        elif result.get("status") == "unavailable":
+                            search_metadata["fallback_reason"] = result.get("message")
+                            # Fall back to direct client
+                            logger.info(
+                                f"[{self.agent_name}] Tool unavailable, "
+                                f"falling back to direct client"
+                            )
+                            return await self._run_with_direct_client(category)
+            else:
+                # No tool calls - LLM didn't use tools, fall back
+                logger.info(
+                    f"[{self.agent_name}] LLM did not call tools, "
+                    f"falling back to direct client"
+                )
+                return await self._run_with_direct_client(category)
+
+        except Exception as e:
+            logger.error(
+                f"[{self.agent_name}] Tool-calling approach failed: {e}"
+            )
+            search_metadata["error"] = str(e)
+            search_metadata["error_type"] = type(e).__name__
+            # Fall back to direct client
+            return await self._run_with_direct_client(category)
+
+        return standards, search_metadata
+
+    async def _run_with_direct_client(
+        self,
+        category: str
+    ) -> tuple[List[str], Dict[str, Any]]:
+        """
+        Execute standard retrieval using direct MCP client calls.
+
+        Fallback method when tool-calling is unavailable or fails.
+
+        Args:
+            category: Account category for search context
+
+        Returns:
+            Tuple of (standards list, search metadata)
+        """
+        from ..services.mcp_client import MCPRagClient, MCPRagClientError
+
+        standards: List[str] = []
+        search_metadata: Dict[str, Any] = {"method": "direct_client"}
+
+        try:
+            mcp_client = MCPRagClient()
+
+            # Hybrid search (Top-30 for Wide Recall)
+            search_result = await mcp_client.search_standards(
+                query_text=f"{category} 회계처리 기준",
+                top_k=30,
+                mode="hybrid"
+            )
+
+            if search_result.get("status") == "success":
+                results = search_result["data"]["results"]
+                search_metadata.update(
+                    search_result.get("data", {}).get("metadata", {})
+                )
+
+                # Format Top-10 for LLM context
+                for r in results[:10]:
+                    standard_id = r.get("standard_id", "Unknown")
+                    paragraph_no = r.get("paragraph_no", "")
+                    content = r.get("content", "")
+                    title = r.get("title", "")
+
+                    content_preview = (
+                        content[:200] + "..." if len(content) > 200 else content
+                    )
+
+                    formatted = f"{standard_id} {paragraph_no}"
+                    if title:
+                        formatted += f" ({title})"
+                    formatted += f": {content_preview}"
+
+                    standards.append(formatted)
+
+                logger.info(
+                    f"[{self.agent_name}] Direct client search successful: "
+                    f"{len(results)} candidates, {len(standards)} formatted. "
+                    f"Duration: {search_metadata.get('duration_ms', 'N/A')}ms"
+                )
+            else:
+                error_msg = search_result.get("message", "Unknown error")
+                logger.warning(
+                    f"[{self.agent_name}] MCP search returned non-success: {error_msg}"
+                )
+                search_metadata["error"] = error_msg
+
+        except MCPRagClientError as e:
+            logger.error(f"[{self.agent_name}] MCP RAG client error: {e}")
+            search_metadata["error"] = str(e)
+            search_metadata["error_type"] = "MCPRagClientError"
+
+        except Exception as e:
+            logger.error(
+                f"[{self.agent_name}] Unexpected error during direct client search: {e}"
+            )
+            search_metadata["error"] = str(e)
+            search_metadata["error_type"] = type(e).__name__
+
+        return standards, search_metadata
 
 
 # ============================================================================

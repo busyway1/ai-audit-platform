@@ -273,7 +273,7 @@ export async function clickEditButton(page: Page): Promise<void> {
  * Helper to check if backend is available
  */
 export async function checkBackendHealth(
-  backendUrl = process.env.VITE_API_URL || 'http://localhost:8000'
+  backendUrl = process.env.VITE_API_URL || 'http://localhost:8080'
 ): Promise<boolean> {
   try {
     const response = await fetch(`${backendUrl}/api/health`);
