@@ -5,6 +5,7 @@ This module contains the persona and logic for all audit agents:
 - PartnerAgent: Strategic audit planning and risk assessment
 - ManagerAgent: Task decomposition and execution coordination
 - Staff Agents: Specialized workers (Excel parsing, RAG retrieval, vouching, writing)
+- StaffAgentFactory: Factory for creating specialized Staff agents
 """
 
 from .partner_agent import PartnerAgent
@@ -15,6 +16,12 @@ from .staff_agents import (
     VouchingAssistantAgent,
     WorkPaperGeneratorAgent,
 )
+from .staff_factory import (
+    StaffAgentFactory,
+    StaffAgentType,
+    get_factory,
+    create_staff_agent,
+)
 
 __all__ = [
     "PartnerAgent",
@@ -23,4 +30,8 @@ __all__ = [
     "StandardRetrieverAgent",
     "VouchingAssistantAgent",
     "WorkPaperGeneratorAgent",
+    "StaffAgentFactory",
+    "StaffAgentType",
+    "get_factory",
+    "create_staff_agent",
 ]
