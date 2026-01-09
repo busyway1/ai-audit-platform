@@ -562,7 +562,14 @@ class TestManagerAgentCoverage:
             '_create_persona_prompt',
             'run',
             '_parse_manager_decision',
-            'should_interrupt'
+            'should_interrupt',
+            'allocate_staff_agents',
+            '_extract_task_requirements',
+            '_calculate_allocation_score',
+            '_create_balanced_allocations',
+            '_calculate_base_priority',
+            '_adjust_priority_for_workload',
+            'get_required_staff_types'
         ]
 
         for method in required_methods:
@@ -603,3 +610,512 @@ class TestManagerAgentCoverage:
         assert "risk_score" in decision
         assert isinstance(decision["risk_score"], int)
         assert 0 <= decision["risk_score"] <= 100
+
+
+# ============================================================================
+# TEST: STAFF ALLOCATION (BE-11.1)
+# ============================================================================
+
+from src.agents.manager_agent import (
+    StaffType, RiskLevel, StaffProfile, AllocationResult, TaskRequirements,
+    STAFF_SKILL_MAPPING, CATEGORY_SKILL_REQUIREMENTS
+)
+
+
+@pytest.fixture
+def sample_available_staff():
+    """Create sample staff profiles for allocation tests."""
+    return [
+        StaffProfile(
+            staff_id="excel-1",
+            staff_type=StaffType.EXCEL_PARSER,
+            skills=["data_extraction", "excel_parsing", "financial_analysis"],
+            current_workload=20,
+            expertise_level=4
+        ),
+        StaffProfile(
+            staff_id="excel-2",
+            staff_type=StaffType.EXCEL_PARSER,
+            skills=["data_extraction", "excel_parsing"],
+            current_workload=70,
+            expertise_level=2
+        ),
+        StaffProfile(
+            staff_id="standard-1",
+            staff_type=StaffType.STANDARD_RETRIEVER,
+            skills=["k_ifrs", "k_gaas", "standard_research"],
+            current_workload=30,
+            expertise_level=5
+        ),
+        StaffProfile(
+            staff_id="vouching-1",
+            staff_type=StaffType.VOUCHING_ASSISTANT,
+            skills=["document_verification", "vouching", "evidence_analysis"],
+            current_workload=50,
+            expertise_level=3
+        ),
+        StaffProfile(
+            staff_id="workpaper-1",
+            staff_type=StaffType.WORKPAPER_GENERATOR,
+            skills=["documentation", "workpaper_drafting", "report_writing"],
+            current_workload=10,
+            expertise_level=4
+        )
+    ]
+
+
+@pytest.fixture
+def sample_task():
+    """Create a sample task for allocation tests."""
+    return {
+        "task_id": "TASK-001",
+        "category": "Sales",
+        "risk_score": 75,
+        "complexity_score": 7,
+        "deadline_urgency": 6,
+        "raw_data": {},
+        "standards": [],
+        "vouching_logs": [],
+        "workpaper_draft": ""
+    }
+
+
+class TestStaffAllocation:
+    """Tests for allocate_staff_agents() method"""
+
+    def test_allocate_staff_agents_returns_list(
+        self, manager_agent_mock, sample_task, sample_available_staff
+    ):
+        """Test allocate_staff_agents returns a list of AllocationResult."""
+        allocations = manager_agent_mock.allocate_staff_agents(
+            sample_task, sample_available_staff
+        )
+
+        assert isinstance(allocations, list)
+        assert all(isinstance(a, AllocationResult) for a in allocations)
+
+    def test_allocate_staff_agents_empty_staff_list(self, manager_agent_mock, sample_task):
+        """Test allocate_staff_agents returns empty list for no available staff."""
+        allocations = manager_agent_mock.allocate_staff_agents(sample_task, [])
+        assert allocations == []
+
+    def test_allocate_staff_agents_prioritizes_low_workload(
+        self, manager_agent_mock, sample_task
+    ):
+        """Test that staff with lower workload get higher priority."""
+        staff = [
+            StaffProfile("busy", StaffType.EXCEL_PARSER, [], 80, 3),
+            StaffProfile("free", StaffType.EXCEL_PARSER, [], 10, 3),
+        ]
+
+        allocations = manager_agent_mock.allocate_staff_agents(sample_task, staff)
+
+        # Free staff should have higher allocation score due to availability
+        free_alloc = next((a for a in allocations if a.staff_id == "free"), None)
+        busy_alloc = next((a for a in allocations if a.staff_id == "busy"), None)
+
+        if free_alloc and busy_alloc:
+            assert free_alloc.allocation_score > busy_alloc.allocation_score
+
+    def test_allocate_staff_agents_prefers_higher_expertise_for_high_risk(
+        self, manager_agent_mock
+    ):
+        """Test that high-risk tasks prefer staff with higher expertise."""
+        high_risk_task = {
+            "task_id": "HIGH-RISK-001",
+            "category": "대손충당금",
+            "risk_score": 90,
+            "complexity_score": 8
+        }
+
+        staff = [
+            StaffProfile("junior", StaffType.EXCEL_PARSER, [], 30, 2),
+            StaffProfile("senior", StaffType.EXCEL_PARSER, [], 30, 5),
+        ]
+
+        allocations = manager_agent_mock.allocate_staff_agents(high_risk_task, staff)
+
+        senior_alloc = next((a for a in allocations if a.staff_id == "senior"), None)
+        junior_alloc = next((a for a in allocations if a.staff_id == "junior"), None)
+
+        if senior_alloc and junior_alloc:
+            assert senior_alloc.allocation_score > junior_alloc.allocation_score
+
+    def test_allocate_staff_agents_considers_skill_match(
+        self, manager_agent_mock
+    ):
+        """Test that staff with matching skills score higher."""
+        task = {
+            "task_id": "SKILL-TEST",
+            "category": "Sales",  # Requires: data_extraction, k_ifrs, vouching, documentation
+            "risk_score": 50
+        }
+
+        staff = [
+            StaffProfile(
+                "mismatched",
+                StaffType.EXCEL_PARSER,
+                ["unrelated_skill"],
+                20, 3
+            ),
+            StaffProfile(
+                "matched",
+                StaffType.EXCEL_PARSER,
+                ["data_extraction", "k_ifrs"],
+                20, 3
+            ),
+        ]
+
+        allocations = manager_agent_mock.allocate_staff_agents(task, staff)
+
+        matched_alloc = next((a for a in allocations if a.staff_id == "matched"), None)
+        mismatched_alloc = next((a for a in allocations if a.staff_id == "mismatched"), None)
+
+        if matched_alloc and mismatched_alloc:
+            assert matched_alloc.allocation_score > mismatched_alloc.allocation_score
+
+    def test_allocate_staff_agents_load_balancing(
+        self, manager_agent_mock, sample_task, sample_available_staff
+    ):
+        """Test that load balancing distributes work across staff types."""
+        allocations = manager_agent_mock.allocate_staff_agents(
+            sample_task, sample_available_staff
+        )
+
+        # Should have at most one allocation per staff type (load balancing)
+        staff_types = [a.staff_type for a in allocations]
+        unique_types = set(staff_types)
+
+        # Most types should be unique (balanced)
+        assert len(unique_types) >= len(allocations) * 0.8
+
+
+class TestExtractTaskRequirements:
+    """Tests for _extract_task_requirements() method"""
+
+    def test_extract_task_requirements_creates_object(self, manager_agent_mock, sample_task):
+        """Test that requirements are extracted into TaskRequirements object."""
+        requirements = manager_agent_mock._extract_task_requirements(sample_task)
+
+        assert isinstance(requirements, TaskRequirements)
+        assert requirements.task_id == "TASK-001"
+        assert requirements.category == "Sales"
+
+    def test_extract_task_requirements_risk_level_critical(self, manager_agent_mock):
+        """Test risk_score >= 80 maps to CRITICAL."""
+        task = {"task_id": "T1", "risk_score": 85}
+        requirements = manager_agent_mock._extract_task_requirements(task)
+        assert requirements.risk_level == RiskLevel.CRITICAL
+
+    def test_extract_task_requirements_risk_level_high(self, manager_agent_mock):
+        """Test risk_score 60-79 maps to HIGH."""
+        task = {"task_id": "T1", "risk_score": 65}
+        requirements = manager_agent_mock._extract_task_requirements(task)
+        assert requirements.risk_level == RiskLevel.HIGH
+
+    def test_extract_task_requirements_risk_level_medium(self, manager_agent_mock):
+        """Test risk_score 40-59 maps to MEDIUM."""
+        task = {"task_id": "T1", "risk_score": 50}
+        requirements = manager_agent_mock._extract_task_requirements(task)
+        assert requirements.risk_level == RiskLevel.MEDIUM
+
+    def test_extract_task_requirements_risk_level_low(self, manager_agent_mock):
+        """Test risk_score < 40 maps to LOW."""
+        task = {"task_id": "T1", "risk_score": 30}
+        requirements = manager_agent_mock._extract_task_requirements(task)
+        assert requirements.risk_level == RiskLevel.LOW
+
+    def test_extract_task_requirements_gets_category_skills(self, manager_agent_mock):
+        """Test that category-specific skills are extracted."""
+        task = {"task_id": "T1", "category": "매출", "risk_score": 50}
+        requirements = manager_agent_mock._extract_task_requirements(task)
+
+        expected_skills = CATEGORY_SKILL_REQUIREMENTS.get("매출", [])
+        assert requirements.required_skills == expected_skills
+
+    def test_extract_task_requirements_default_skills_for_unknown_category(
+        self, manager_agent_mock
+    ):
+        """Test that unknown categories get default skills."""
+        task = {"task_id": "T1", "category": "UnknownCategory", "risk_score": 50}
+        requirements = manager_agent_mock._extract_task_requirements(task)
+
+        # Should have default skills
+        assert "data_extraction" in requirements.required_skills
+        assert "documentation" in requirements.required_skills
+
+    def test_extract_task_requirements_urgency_boost_for_high_risk(
+        self, manager_agent_mock
+    ):
+        """Test that high-risk tasks get urgency boost."""
+        task = {"task_id": "T1", "risk_score": 85, "deadline_urgency": 5}
+        requirements = manager_agent_mock._extract_task_requirements(task)
+
+        # High risk should boost urgency to at least 7
+        assert requirements.deadline_urgency >= 7
+
+
+class TestCalculateAllocationScore:
+    """Tests for _calculate_allocation_score() method"""
+
+    def test_calculate_allocation_score_returns_tuple(self, manager_agent_mock):
+        """Test that score calculation returns (score, reason) tuple."""
+        staff = StaffProfile("s1", StaffType.EXCEL_PARSER, [], 20, 3)
+        requirements = TaskRequirements("T1", "Sales", RiskLevel.MEDIUM, [], 5, 5)
+
+        result = manager_agent_mock._calculate_allocation_score(staff, requirements)
+
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        assert isinstance(result[0], (int, float))
+        assert isinstance(result[1], str)
+
+    def test_calculate_allocation_score_higher_for_lower_workload(
+        self, manager_agent_mock
+    ):
+        """Test that lower workload results in higher score."""
+        staff_free = StaffProfile("free", StaffType.EXCEL_PARSER, [], 10, 3)
+        staff_busy = StaffProfile("busy", StaffType.EXCEL_PARSER, [], 90, 3)
+        requirements = TaskRequirements("T1", "Sales", RiskLevel.MEDIUM, [], 5, 5)
+
+        score_free, _ = manager_agent_mock._calculate_allocation_score(
+            staff_free, requirements
+        )
+        score_busy, _ = manager_agent_mock._calculate_allocation_score(
+            staff_busy, requirements
+        )
+
+        assert score_free > score_busy
+
+    def test_calculate_allocation_score_higher_for_better_skill_match(
+        self, manager_agent_mock
+    ):
+        """Test that better skill match results in higher score."""
+        staff_matched = StaffProfile(
+            "matched", StaffType.EXCEL_PARSER,
+            ["data_extraction", "k_ifrs"], 30, 3
+        )
+        staff_unmatched = StaffProfile(
+            "unmatched", StaffType.EXCEL_PARSER,
+            ["irrelevant_skill"], 30, 3
+        )
+        requirements = TaskRequirements(
+            "T1", "Sales", RiskLevel.MEDIUM,
+            ["data_extraction", "k_ifrs"], 5, 5
+        )
+
+        score_matched, _ = manager_agent_mock._calculate_allocation_score(
+            staff_matched, requirements
+        )
+        score_unmatched, _ = manager_agent_mock._calculate_allocation_score(
+            staff_unmatched, requirements
+        )
+
+        assert score_matched > score_unmatched
+
+    def test_calculate_allocation_score_expertise_bonus_for_high_risk(
+        self, manager_agent_mock
+    ):
+        """Test that experts get bonus for high-risk tasks."""
+        expert = StaffProfile("expert", StaffType.EXCEL_PARSER, [], 30, 5)
+        junior = StaffProfile("junior", StaffType.EXCEL_PARSER, [], 30, 2)
+
+        high_risk_req = TaskRequirements(
+            "T1", "Sales", RiskLevel.CRITICAL, [], 8, 8
+        )
+
+        score_expert, reason_expert = manager_agent_mock._calculate_allocation_score(
+            expert, high_risk_req
+        )
+        score_junior, _ = manager_agent_mock._calculate_allocation_score(
+            junior, high_risk_req
+        )
+
+        assert score_expert > score_junior
+        assert "Expert for high-risk task" in reason_expert or "Suited for complex work" in reason_expert
+
+
+class TestCalculateBasePriority:
+    """Tests for _calculate_base_priority() method"""
+
+    def test_calculate_base_priority_critical_risk(self, manager_agent_mock):
+        """Test CRITICAL risk increases priority."""
+        requirements = TaskRequirements("T1", "Sales", RiskLevel.CRITICAL, [], 5, 5)
+        priority = manager_agent_mock._calculate_base_priority(requirements)
+
+        assert priority >= 7  # Base 5 + 3 for critical - capped at 10
+
+    def test_calculate_base_priority_high_risk(self, manager_agent_mock):
+        """Test HIGH risk increases priority."""
+        requirements = TaskRequirements("T1", "Sales", RiskLevel.HIGH, [], 5, 5)
+        priority = manager_agent_mock._calculate_base_priority(requirements)
+
+        assert priority >= 6  # Base 5 + 2 for high
+
+    def test_calculate_base_priority_low_risk(self, manager_agent_mock):
+        """Test LOW risk decreases priority."""
+        requirements = TaskRequirements("T1", "Sales", RiskLevel.LOW, [], 5, 5)
+        priority = manager_agent_mock._calculate_base_priority(requirements)
+
+        assert priority <= 5  # Base 5 - 1 for low
+
+    def test_calculate_base_priority_high_urgency_boost(self, manager_agent_mock):
+        """Test high urgency increases priority."""
+        requirements = TaskRequirements("T1", "Sales", RiskLevel.MEDIUM, [], 5, 9)
+        priority = manager_agent_mock._calculate_base_priority(requirements)
+
+        assert priority >= 7  # Base 5 + 0 for medium + 2 for urgency >= 8
+
+    def test_calculate_base_priority_clamped_to_range(self, manager_agent_mock):
+        """Test priority is clamped to 1-10 range."""
+        # Maximum scenario
+        max_req = TaskRequirements("T1", "Sales", RiskLevel.CRITICAL, [], 10, 10)
+        max_priority = manager_agent_mock._calculate_base_priority(max_req)
+        assert max_priority <= 10
+
+        # Minimum scenario
+        min_req = TaskRequirements("T1", "Sales", RiskLevel.LOW, [], 1, 1)
+        min_priority = manager_agent_mock._calculate_base_priority(min_req)
+        assert min_priority >= 1
+
+
+class TestAdjustPriorityForWorkload:
+    """Tests for _adjust_priority_for_workload() method"""
+
+    def test_adjust_priority_high_workload_reduces_priority(self, manager_agent_mock):
+        """Test that high workload (>=80) reduces priority by 2."""
+        adjusted = manager_agent_mock._adjust_priority_for_workload(8, 85)
+        assert adjusted == 6
+
+    def test_adjust_priority_medium_workload_reduces_priority(self, manager_agent_mock):
+        """Test that medium workload (60-79) reduces priority by 1."""
+        adjusted = manager_agent_mock._adjust_priority_for_workload(8, 65)
+        assert adjusted == 7
+
+    def test_adjust_priority_low_workload_no_change(self, manager_agent_mock):
+        """Test that low workload (<60) doesn't change priority."""
+        adjusted = manager_agent_mock._adjust_priority_for_workload(8, 30)
+        assert adjusted == 8
+
+    def test_adjust_priority_minimum_is_1(self, manager_agent_mock):
+        """Test that priority never goes below 1."""
+        adjusted = manager_agent_mock._adjust_priority_for_workload(1, 95)
+        assert adjusted >= 1
+
+
+class TestGetRequiredStaffTypes:
+    """Tests for get_required_staff_types() method"""
+
+    def test_get_required_staff_types_all_needed(self, manager_agent_mock):
+        """Test that all staff types are needed for empty task."""
+        task = {
+            "raw_data": {},
+            "standards": [],
+            "vouching_logs": [],
+            "workpaper_draft": ""
+        }
+
+        required = manager_agent_mock.get_required_staff_types(task)
+
+        assert StaffType.EXCEL_PARSER in required
+        assert StaffType.STANDARD_RETRIEVER in required
+        assert StaffType.VOUCHING_ASSISTANT in required
+        assert StaffType.WORKPAPER_GENERATOR in required
+
+    def test_get_required_staff_types_partial_completion(self, manager_agent_mock):
+        """Test that only remaining types are returned."""
+        task = {
+            "raw_data": {"transactions": [{"id": 1}]},  # Completed
+            "standards": ["K-IFRS 1115"],  # Completed
+            "vouching_logs": [],  # Needed
+            "workpaper_draft": ""  # Needed
+        }
+
+        required = manager_agent_mock.get_required_staff_types(task)
+
+        assert StaffType.EXCEL_PARSER not in required
+        assert StaffType.STANDARD_RETRIEVER not in required
+        assert StaffType.VOUCHING_ASSISTANT in required
+        assert StaffType.WORKPAPER_GENERATOR in required
+
+    def test_get_required_staff_types_none_needed(self, manager_agent_mock):
+        """Test that empty list returned for completed task."""
+        task = {
+            "raw_data": {"transactions": [{"id": 1}]},
+            "standards": ["K-IFRS 1115"],
+            "vouching_logs": [{"id": "V1"}],
+            "workpaper_draft": "# Report"
+        }
+
+        required = manager_agent_mock.get_required_staff_types(task)
+
+        assert len(required) == 0
+
+    def test_get_required_staff_types_preserves_order(self, manager_agent_mock):
+        """Test that staff types are returned in execution order."""
+        task = {
+            "raw_data": {},
+            "standards": [],
+            "vouching_logs": [],
+            "workpaper_draft": ""
+        }
+
+        required = manager_agent_mock.get_required_staff_types(task)
+
+        # Should be in workflow order
+        assert required.index(StaffType.EXCEL_PARSER) < required.index(StaffType.STANDARD_RETRIEVER)
+        assert required.index(StaffType.STANDARD_RETRIEVER) < required.index(StaffType.VOUCHING_ASSISTANT)
+        assert required.index(StaffType.VOUCHING_ASSISTANT) < required.index(StaffType.WORKPAPER_GENERATOR)
+
+
+class TestStaffAllocationIntegration:
+    """Integration tests for the complete allocation workflow"""
+
+    def test_full_allocation_workflow(
+        self, manager_agent_mock, sample_task, sample_available_staff
+    ):
+        """Test complete allocation workflow from task to results."""
+        # Get required staff types
+        required_types = manager_agent_mock.get_required_staff_types(sample_task)
+
+        # Allocate staff
+        allocations = manager_agent_mock.allocate_staff_agents(
+            sample_task, sample_available_staff
+        )
+
+        # Verify allocations cover required types
+        allocated_types = {a.staff_type for a in allocations}
+
+        # At least some required types should be allocated
+        assert len(allocated_types) > 0
+
+    def test_allocation_results_have_valid_structure(
+        self, manager_agent_mock, sample_task, sample_available_staff
+    ):
+        """Test that allocation results have all required fields."""
+        allocations = manager_agent_mock.allocate_staff_agents(
+            sample_task, sample_available_staff
+        )
+
+        for alloc in allocations:
+            assert hasattr(alloc, 'staff_id')
+            assert hasattr(alloc, 'staff_type')
+            assert hasattr(alloc, 'priority')
+            assert hasattr(alloc, 'allocation_score')
+            assert hasattr(alloc, 'reason')
+
+            assert 1 <= alloc.priority <= 10
+            assert alloc.allocation_score >= 0
+            assert len(alloc.reason) > 0
+
+    def test_allocation_sorted_by_priority(
+        self, manager_agent_mock, sample_task, sample_available_staff
+    ):
+        """Test that allocations are sorted by priority (highest first)."""
+        allocations = manager_agent_mock.allocate_staff_agents(
+            sample_task, sample_available_staff
+        )
+
+        if len(allocations) > 1:
+            priorities = [a.priority for a in allocations]
+            assert priorities == sorted(priorities, reverse=True)

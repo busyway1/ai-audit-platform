@@ -16,7 +16,9 @@ Mission:
 Reference: Section 4.3 of AUDIT_PLATFORM_SPECIFICATION.md
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
+from dataclasses import dataclass
+from enum import Enum
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
@@ -24,6 +26,118 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+# ============================================================================
+# STAFF ALLOCATION DATA STRUCTURES
+# ============================================================================
+
+class StaffType(str, Enum):
+    """Staff agent types for allocation."""
+    EXCEL_PARSER = "excel_parser"
+    STANDARD_RETRIEVER = "standard_retriever"
+    VOUCHING_ASSISTANT = "vouching_assistant"
+    WORKPAPER_GENERATOR = "workpaper_generator"
+
+
+class RiskLevel(str, Enum):
+    """Risk levels for task allocation."""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+@dataclass
+class StaffProfile:
+    """Profile of an available Staff agent for allocation.
+
+    Attributes:
+        staff_id: Unique identifier for the staff instance
+        staff_type: Type of staff agent (StaffType enum)
+        skills: List of skills this staff agent possesses
+        current_workload: Current workload (0-100), affects availability
+        expertise_level: Expertise level (1-5), higher is more experienced
+    """
+    staff_id: str
+    staff_type: StaffType
+    skills: List[str]
+    current_workload: int = 0  # 0-100
+    expertise_level: int = 3  # 1-5
+
+
+@dataclass
+class AllocationResult:
+    """Result of staff allocation decision.
+
+    Attributes:
+        staff_id: ID of assigned staff
+        staff_type: Type of staff agent assigned
+        priority: Priority of this assignment (1-10, higher = more urgent)
+        allocation_score: Score indicating how well this staff fits the task
+        reason: Human-readable reason for this allocation
+    """
+    staff_id: str
+    staff_type: StaffType
+    priority: int
+    allocation_score: float
+    reason: str
+
+
+@dataclass
+class TaskRequirements:
+    """Requirements extracted from a task for staff allocation.
+
+    Attributes:
+        task_id: Task identifier
+        category: Audit category (e.g., "Sales", "Inventory")
+        risk_level: Risk level of the task
+        required_skills: Skills required for this task
+        complexity_score: Complexity score (1-10)
+        deadline_urgency: Urgency level (1-10)
+    """
+    task_id: str
+    category: str
+    risk_level: RiskLevel
+    required_skills: List[str]
+    complexity_score: int = 5  # 1-10
+    deadline_urgency: int = 5  # 1-10
+
+
+# Skill definitions for each Staff type
+STAFF_SKILL_MAPPING: Dict[StaffType, List[str]] = {
+    StaffType.EXCEL_PARSER: [
+        "data_extraction", "excel_parsing", "financial_analysis",
+        "data_validation", "anomaly_detection"
+    ],
+    StaffType.STANDARD_RETRIEVER: [
+        "k_ifrs", "k_gaas", "standard_research", "regulatory_compliance",
+        "audit_standards"
+    ],
+    StaffType.VOUCHING_ASSISTANT: [
+        "document_verification", "vouching", "evidence_analysis",
+        "cross_referencing", "exception_identification"
+    ],
+    StaffType.WORKPAPER_GENERATOR: [
+        "documentation", "workpaper_drafting", "synthesis",
+        "report_writing", "audit_documentation"
+    ]
+}
+
+
+# Category to required skills mapping
+CATEGORY_SKILL_REQUIREMENTS: Dict[str, List[str]] = {
+    "매출": ["data_extraction", "k_ifrs", "vouching", "documentation"],
+    "Sales": ["data_extraction", "k_ifrs", "vouching", "documentation"],
+    "매입": ["data_extraction", "k_ifrs", "vouching", "documentation"],
+    "Purchases": ["data_extraction", "k_ifrs", "vouching", "documentation"],
+    "재고": ["data_extraction", "data_validation", "vouching", "documentation"],
+    "Inventory": ["data_extraction", "data_validation", "vouching", "documentation"],
+    "현금": ["data_extraction", "evidence_analysis", "vouching", "documentation"],
+    "Cash": ["data_extraction", "evidence_analysis", "vouching", "documentation"],
+    "대손충당금": ["financial_analysis", "k_ifrs", "evidence_analysis", "documentation"],
+    "Allowance": ["financial_analysis", "k_ifrs", "evidence_analysis", "documentation"]
+}
 
 
 class ManagerAgent:
@@ -295,6 +409,356 @@ Blackboard (Staff 작업 공간):
             return True
 
         return False
+
+    # ========================================================================
+    # DYNAMIC STAFF ALLOCATION (BE-11.1)
+    # ========================================================================
+
+    def allocate_staff_agents(
+        self,
+        task: Dict[str, Any],
+        available_staff: List[StaffProfile]
+    ) -> List[AllocationResult]:
+        """Dynamically allocate Staff agents to a task based on multiple factors.
+
+        This method implements intelligent staff allocation considering:
+        1. Risk level of the task
+        2. Required skills for the task category
+        3. Current workload of available staff
+        4. Staff expertise and performance
+
+        Args:
+            task: Task dictionary containing task_id, category, risk_score, etc.
+            available_staff: List of StaffProfile objects representing available staff
+
+        Returns:
+            List[AllocationResult]: Ordered list of staff allocations with priorities
+
+        Example:
+            ```python
+            manager = ManagerAgent()
+
+            task = {
+                "task_id": "TASK-001",
+                "category": "Sales",
+                "risk_score": 75,
+                "complexity_score": 7
+            }
+
+            available_staff = [
+                StaffProfile("staff-1", StaffType.EXCEL_PARSER, [...], 20, 4),
+                StaffProfile("staff-2", StaffType.STANDARD_RETRIEVER, [...], 50, 3),
+            ]
+
+            allocations = manager.allocate_staff_agents(task, available_staff)
+            for alloc in allocations:
+                print(f"{alloc.staff_type}: priority={alloc.priority}")
+            ```
+        """
+        if not available_staff:
+            return []
+
+        # Extract task requirements
+        task_requirements = self._extract_task_requirements(task)
+
+        # Calculate allocation scores for each available staff
+        scored_staff: List[tuple[StaffProfile, float, str]] = []
+
+        for staff in available_staff:
+            score, reason = self._calculate_allocation_score(
+                staff, task_requirements
+            )
+            scored_staff.append((staff, score, reason))
+
+        # Sort by score (descending) - higher score = better match
+        scored_staff.sort(key=lambda x: x[1], reverse=True)
+
+        # Create allocation results with load balancing
+        allocations = self._create_balanced_allocations(
+            scored_staff, task_requirements
+        )
+
+        return allocations
+
+    def _extract_task_requirements(
+        self,
+        task: Dict[str, Any]
+    ) -> TaskRequirements:
+        """Extract requirements from a task dictionary.
+
+        Args:
+            task: Task dictionary with task details
+
+        Returns:
+            TaskRequirements object with extracted information
+        """
+        category = task.get("category", "Sales")
+        risk_score = task.get("risk_score", 50)
+
+        # Determine risk level from score
+        if risk_score >= 80:
+            risk_level = RiskLevel.CRITICAL
+        elif risk_score >= 60:
+            risk_level = RiskLevel.HIGH
+        elif risk_score >= 40:
+            risk_level = RiskLevel.MEDIUM
+        else:
+            risk_level = RiskLevel.LOW
+
+        # Get required skills from category mapping
+        required_skills = CATEGORY_SKILL_REQUIREMENTS.get(
+            category,
+            ["data_extraction", "documentation"]  # Default skills
+        )
+
+        # Calculate complexity from various factors
+        complexity_score = task.get("complexity_score", 5)
+        if complexity_score == 0:
+            # Auto-calculate based on risk and category
+            complexity_score = min(10, max(1, risk_score // 10))
+
+        # Calculate urgency from deadline or default
+        deadline_urgency = task.get("deadline_urgency", 5)
+        if risk_level in [RiskLevel.CRITICAL, RiskLevel.HIGH]:
+            deadline_urgency = max(deadline_urgency, 7)
+
+        return TaskRequirements(
+            task_id=task.get("task_id", "UNKNOWN"),
+            category=category,
+            risk_level=risk_level,
+            required_skills=required_skills,
+            complexity_score=complexity_score,
+            deadline_urgency=deadline_urgency
+        )
+
+    def _calculate_allocation_score(
+        self,
+        staff: StaffProfile,
+        requirements: TaskRequirements
+    ) -> tuple[float, str]:
+        """Calculate allocation score for a staff-task pair.
+
+        The score is based on:
+        - Skill match (40% weight)
+        - Workload availability (35% weight)
+        - Expertise level (25% weight)
+
+        Higher risk tasks get bonus for higher expertise.
+
+        Args:
+            staff: StaffProfile of the candidate staff
+            requirements: TaskRequirements for the task
+
+        Returns:
+            Tuple of (score: float, reason: str)
+        """
+        reasons: List[str] = []
+
+        # 1. Skill Match Score (0-100, 40% weight)
+        staff_skills = set(staff.skills)
+        required_skills = set(requirements.required_skills)
+        staff_type_skills = set(STAFF_SKILL_MAPPING.get(staff.staff_type, []))
+
+        # Combine staff's explicit skills with type-based skills
+        all_staff_skills = staff_skills.union(staff_type_skills)
+
+        if required_skills:
+            skill_overlap = len(all_staff_skills.intersection(required_skills))
+            skill_match_score = (skill_overlap / len(required_skills)) * 100
+        else:
+            skill_match_score = 50  # Neutral if no specific skills required
+
+        if skill_match_score >= 75:
+            reasons.append(f"Strong skill match ({skill_match_score:.0f}%)")
+        elif skill_match_score >= 50:
+            reasons.append(f"Partial skill match ({skill_match_score:.0f}%)")
+        else:
+            reasons.append(f"Limited skill match ({skill_match_score:.0f}%)")
+
+        # 2. Workload Availability Score (0-100, 35% weight)
+        # Lower workload = higher availability = higher score
+        availability_score = 100 - staff.current_workload
+
+        if availability_score >= 80:
+            reasons.append("High availability")
+        elif availability_score >= 50:
+            reasons.append("Moderate availability")
+        else:
+            reasons.append("Limited availability")
+
+        # 3. Expertise Score (0-100, 25% weight)
+        # expertise_level is 1-5, normalize to 0-100
+        expertise_score = (staff.expertise_level / 5) * 100
+
+        # Bonus for high expertise on high-risk tasks
+        if requirements.risk_level in [RiskLevel.CRITICAL, RiskLevel.HIGH]:
+            if staff.expertise_level >= 4:
+                expertise_score = min(100, expertise_score * 1.2)
+                reasons.append("Expert for high-risk task")
+
+        # 4. Calculate weighted total score
+        total_score = (
+            skill_match_score * 0.40 +
+            availability_score * 0.35 +
+            expertise_score * 0.25
+        )
+
+        # Apply complexity adjustment
+        if requirements.complexity_score >= 7:
+            # Complex tasks benefit from higher expertise
+            if staff.expertise_level >= 4:
+                total_score *= 1.1
+                reasons.append("Suited for complex work")
+            elif staff.expertise_level <= 2:
+                total_score *= 0.9
+
+        reason_text = "; ".join(reasons) if reasons else "Standard allocation"
+
+        return total_score, reason_text
+
+    def _create_balanced_allocations(
+        self,
+        scored_staff: List[tuple[StaffProfile, float, str]],
+        requirements: TaskRequirements
+    ) -> List[AllocationResult]:
+        """Create load-balanced allocation results from scored staff.
+
+        Ensures that:
+        - Staff with high workload are deprioritized
+        - Each staff type needed is included
+        - Priorities reflect urgency and risk
+
+        Args:
+            scored_staff: List of (StaffProfile, score, reason) tuples, sorted by score
+            requirements: TaskRequirements for the task
+
+        Returns:
+            List[AllocationResult] with balanced allocations
+        """
+        allocations: List[AllocationResult] = []
+
+        # Determine base priority from risk level and urgency
+        base_priority = self._calculate_base_priority(requirements)
+
+        # Track which staff types have been allocated
+        allocated_types: set[StaffType] = set()
+
+        for staff, score, reason in scored_staff:
+            # Skip if this staff type already allocated (load balancing)
+            # Unless score is significantly higher (>20 points difference)
+            if staff.staff_type in allocated_types:
+                existing_alloc = next(
+                    (a for a in allocations if a.staff_type == staff.staff_type),
+                    None
+                )
+                if existing_alloc and (existing_alloc.allocation_score - score) < 20:
+                    continue
+
+            # Calculate priority for this allocation
+            priority = self._adjust_priority_for_workload(
+                base_priority, staff.current_workload
+            )
+
+            allocation = AllocationResult(
+                staff_id=staff.staff_id,
+                staff_type=staff.staff_type,
+                priority=priority,
+                allocation_score=round(score, 2),
+                reason=reason
+            )
+
+            allocations.append(allocation)
+            allocated_types.add(staff.staff_type)
+
+        # Sort allocations by priority (higher = more urgent)
+        allocations.sort(key=lambda x: x.priority, reverse=True)
+
+        return allocations
+
+    def _calculate_base_priority(self, requirements: TaskRequirements) -> int:
+        """Calculate base priority from task requirements.
+
+        Args:
+            requirements: TaskRequirements object
+
+        Returns:
+            Base priority (1-10)
+        """
+        priority = 5  # Default
+
+        # Adjust for risk level
+        risk_adjustments = {
+            RiskLevel.CRITICAL: 3,
+            RiskLevel.HIGH: 2,
+            RiskLevel.MEDIUM: 0,
+            RiskLevel.LOW: -1
+        }
+        priority += risk_adjustments.get(requirements.risk_level, 0)
+
+        # Adjust for deadline urgency
+        if requirements.deadline_urgency >= 8:
+            priority += 2
+        elif requirements.deadline_urgency >= 6:
+            priority += 1
+
+        # Clamp to valid range
+        return max(1, min(10, priority))
+
+    def _adjust_priority_for_workload(
+        self,
+        base_priority: int,
+        current_workload: int
+    ) -> int:
+        """Adjust priority based on staff workload for load balancing.
+
+        Staff with high workload get lower priority to spread work.
+
+        Args:
+            base_priority: Starting priority value
+            current_workload: Staff's current workload (0-100)
+
+        Returns:
+            Adjusted priority (1-10)
+        """
+        # Reduce priority for overloaded staff
+        if current_workload >= 80:
+            return max(1, base_priority - 2)
+        elif current_workload >= 60:
+            return max(1, base_priority - 1)
+
+        return base_priority
+
+    def get_required_staff_types(
+        self,
+        task: Dict[str, Any]
+    ) -> List[StaffType]:
+        """Determine which Staff types are needed for a task.
+
+        Based on the current state of the task's Blackboard,
+        returns the Staff types that still need to run.
+
+        Args:
+            task: Task dictionary with current state
+
+        Returns:
+            List[StaffType] in execution order
+        """
+        required_types: List[StaffType] = []
+
+        # Check each stage of the audit workflow
+        if not task.get("raw_data"):
+            required_types.append(StaffType.EXCEL_PARSER)
+
+        if not task.get("standards"):
+            required_types.append(StaffType.STANDARD_RETRIEVER)
+
+        if not task.get("vouching_logs"):
+            required_types.append(StaffType.VOUCHING_ASSISTANT)
+
+        if not task.get("workpaper_draft"):
+            required_types.append(StaffType.WORKPAPER_GENERATOR)
+
+        return required_types
 
 
 # ============================================================================
