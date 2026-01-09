@@ -13,6 +13,8 @@ Available Nodes:
 - multihop_node: Multi-hop retrieval for K-IFRS RAG context expansion
 - interview_node: Audit strategy interview workflow
 - wait_for_interview_completion_node: HITL checkpoint for interview review
+- hitl_interrupt_node: HITL escalation handling based on urgency scores
+- process_individual_hitl_node: Individual HITL request processing
 
 Reference: AUDIT_PLATFORM_SPECIFICATION.md Section 4.4
 """
@@ -27,6 +29,17 @@ from .interview_node import (
     get_interview_progress,
     validate_interview_responses,
 )
+from .hitl_interrupt import (
+    hitl_interrupt_node,
+    process_individual_hitl_node,
+    get_hitl_summary,
+    should_trigger_hitl,
+    calculate_urgency_score,
+    HITLRequestType,
+    HITLRequestStatus,
+    HITLUrgencyLevel,
+    DEFAULT_URGENCY_CONFIG,
+)
 
 __all__ = [
     "partner_planning_node",
@@ -39,4 +52,13 @@ __all__ = [
     "wait_for_interview_completion_node",
     "get_interview_progress",
     "validate_interview_responses",
+    "hitl_interrupt_node",
+    "process_individual_hitl_node",
+    "get_hitl_summary",
+    "should_trigger_hitl",
+    "calculate_urgency_score",
+    "HITLRequestType",
+    "HITLRequestStatus",
+    "HITLUrgencyLevel",
+    "DEFAULT_URGENCY_CONFIG",
 ]
