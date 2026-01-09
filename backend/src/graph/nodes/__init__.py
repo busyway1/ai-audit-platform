@@ -15,6 +15,7 @@ Available Nodes:
 - wait_for_interview_completion_node: HITL checkpoint for interview review
 - hitl_interrupt_node: HITL escalation handling based on urgency scores
 - process_individual_hitl_node: Individual HITL request processing
+- ega_parser_node: EGA extraction from Assigned Workflow documents
 
 Reference: AUDIT_PLATFORM_SPECIFICATION.md Section 4.4
 """
@@ -40,6 +41,17 @@ from .hitl_interrupt import (
     HITLUrgencyLevel,
     DEFAULT_URGENCY_CONFIG,
 )
+from .ega_parser import (
+    ega_parser_node,
+    parse_assigned_workflow,
+    EGA,
+    EGAParseResult,
+    EGARiskLevel,
+    EGAStatus,
+    get_ega_summary,
+    filter_egas_by_risk,
+    sort_egas_by_priority,
+)
 
 __all__ = [
     "partner_planning_node",
@@ -61,4 +73,13 @@ __all__ = [
     "HITLRequestStatus",
     "HITLUrgencyLevel",
     "DEFAULT_URGENCY_CONFIG",
+    "ega_parser_node",
+    "parse_assigned_workflow",
+    "EGA",
+    "EGAParseResult",
+    "EGARiskLevel",
+    "EGAStatus",
+    "get_ega_summary",
+    "filter_egas_by_risk",
+    "sort_egas_by_priority",
 ]
