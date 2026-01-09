@@ -1,5 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// Use environment variables for flexibility when ports are already in use
+const FRONTEND_PORT = process.env.FRONTEND_PORT || '5173';
+const BACKEND_PORT = process.env.BACKEND_PORT || '8080';
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -9,7 +13,7 @@ export default defineConfig({
   reporter: 'html',
 
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: process.env.FRONTEND_URL || `http://localhost:${FRONTEND_PORT}`,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
 
@@ -31,14 +35,14 @@ export default defineConfig({
   // Start both backend and frontend servers automatically
   webServer: [
     {
-      command: 'cd ../backend && source venv/bin/activate && uvicorn src.main:app --port 8000',
-      url: 'http://localhost:8000/api/health',
+      command: `cd ../backend && source venv/bin/activate && uvicorn src.main:app --port ${BACKEND_PORT}`,
+      url: `http://localhost:${BACKEND_PORT}/api/health`,
       timeout: 120000,
       reuseExistingServer: !process.env.CI,
     },
     {
       command: 'npm run dev',
-      url: 'http://localhost:5173',
+      url: `http://localhost:${FRONTEND_PORT}`,
       timeout: 120000,
       reuseExistingServer: !process.env.CI,
     },
